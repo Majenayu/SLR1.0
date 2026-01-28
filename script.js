@@ -30,26 +30,19 @@ function saveCart() {
 }
 
 function addToCart(meal, selectedDays) {
-  // selectedDays is an array of objects: [{day: 'monday', batch: '1'}, ...]
-  
-  // Check if meal already exists in cart
   const existingIndex = cart.findIndex(item => item.mealId === meal._id);
   
   if (existingIndex >= 0) {
-    // Merge new days with existing days
     const existing = cart[existingIndex];
     selectedDays.forEach(newDay => {
-      // Check if this day already exists
       const dayExists = existing.days.find(d => d.day === newDay.day);
       if (!dayExists) {
         existing.days.push(newDay);
       } else {
-        // Update batch if different
         dayExists.batch = newDay.batch;
       }
     });
   } else {
-    // Add new meal to cart
     cart.push({
       mealId: meal._id,
       mealName: meal.name,
@@ -65,17 +58,14 @@ function addToCart(meal, selectedDays) {
 
 function removeFromCart(mealId, day = null) {
   if (day) {
-    // Remove specific day from meal
     const item = cart.find(item => item.mealId === mealId);
     if (item) {
       item.days = item.days.filter(d => d.day !== day);
       if (item.days.length === 0) {
-        // Remove entire meal if no days left
         cart = cart.filter(item => item.mealId !== mealId);
       }
     }
   } else {
-    // Remove entire meal
     cart = cart.filter(item => item.mealId !== mealId);
   }
   
@@ -160,11 +150,9 @@ function renderCart() {
   cartTotal.textContent = `₹${total}`;
 }
 
-// Modal handlers for Add to Cart
 function openAddToCartModal(meal) {
   currentSelectedMeal = meal;
   
-  // Update meal info
   const mealInfo = document.getElementById('selectedMealInfo');
   mealInfo.innerHTML = `
     <div class="flex items-center gap-4">
@@ -182,14 +170,12 @@ function openAddToCartModal(meal) {
     </div>
   `;
   
-  // Reset checkboxes and batch selections
   document.querySelectorAll('.day-checkbox').forEach(cb => {
     cb.checked = false;
     const row = cb.closest('.day-row');
     row.querySelector('.batch-selection').classList.add('hidden');
   });
   
-  // Check if this meal is already in cart and pre-select those days
   const existingCartItem = cart.find(item => item.mealId === meal._id);
   if (existingCartItem) {
     existingCartItem.days.forEach(dayInfo => {
@@ -207,7 +193,6 @@ function openAddToCartModal(meal) {
   document.getElementById('addToCartModal').classList.remove('hidden');
 }
 
-// Day checkbox change handlers
 document.querySelectorAll('.day-checkbox').forEach(checkbox => {
   checkbox.addEventListener('change', function() {
     const row = this.closest('.day-row');
@@ -215,7 +200,6 @@ document.querySelectorAll('.day-checkbox').forEach(checkbox => {
     
     if (this.checked) {
       batchSelection.classList.remove('hidden');
-      // Auto-select batch 1 if none selected
       const batchRadios = row.querySelectorAll('.batch-radio');
       const anyChecked = Array.from(batchRadios).some(r => r.checked);
       if (!anyChecked && batchRadios.length > 0) {
@@ -227,7 +211,6 @@ document.querySelectorAll('.day-checkbox').forEach(checkbox => {
   });
 });
 
-// Add selected to cart
 document.getElementById('addSelectedToCart').addEventListener('click', () => {
   if (!currentSelectedMeal) return;
   
@@ -266,7 +249,6 @@ document.getElementById('closeAddToCart').addEventListener('click', () => {
   currentSelectedMeal = null;
 });
 
-// Cart button handler
 document.getElementById('cartBtn').addEventListener('click', () => {
   renderCart();
   document.getElementById('cartModal').classList.remove('hidden');
@@ -276,14 +258,12 @@ document.getElementById('closeCart').addEventListener('click', () => {
   document.getElementById('cartModal').classList.add('hidden');
 });
 
-// Checkout handler
 document.getElementById('proceedToCheckout').addEventListener('click', async () => {
   if (cart.length === 0) {
     showToast('Your cart is empty', 'error');
     return;
   }
   
-  // Prepare order data
   const orders = [];
   cart.forEach(item => {
     item.days.forEach(dayInfo => {
@@ -314,21 +294,13 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
     const data = await response.json();
     
     if (data.success) {
-      // Store token info
       const today = new Date().toDateString();
       localStorage.setItem(`token_${today}_${userEmail}`, data.token);
       localStorage.setItem(`tokenData_${today}_${userEmail}`, JSON.stringify(data.meals));
       
-      // Clear cart
       clearCart();
-      
-      // Close cart modal
       document.getElementById('cartModal').classList.add('hidden');
-      
-      // Show success message
       showToast('✓ Order placed! Token generated. Please verify payment at Token Verification page.', 'success');
-      
-      // Reload orders
       loadOrders();
     } else {
       showToast(data.error || 'Checkout failed', 'error');
@@ -342,7 +314,6 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
   }
 });
 
-// Toast notification
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   const bgColor = type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
@@ -362,7 +333,6 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
-// Check profile completion
 async function checkProfile() {
   const res = await fetch(`/user/${userEmail}`);
   const data = await res.json();
@@ -397,7 +367,6 @@ async function checkProfile() {
   }
 }
 
-// Camera functionality
 document.getElementById('startCamera').onclick = async () => {
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({ 
@@ -490,9 +459,8 @@ document.getElementById('saveProfileBtn').addEventListener('click', async () => 
 
   const formData = new FormData();
   formData.append('email', userEmail);
-  formData.append('name', name);
   if (photo) {
-    formData.append('photo', photo);
+    formData.append('profilePhoto', photo);
   }
 
   const btn = document.getElementById('saveProfileBtn');
@@ -500,15 +468,15 @@ document.getElementById('saveProfileBtn').addEventListener('click', async () => 
   btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Saving...';
 
   try {
-    const res = await fetch('/update-profile', {
+    const res = await fetch('/complete-profile', {
       method: 'POST',
       body: formData
     });
     const data = await res.json();
 
     if (data.success) {
-      localStorage.setItem('messmate_user_name', data.name);
-      localStorage.setItem('messmate_profile_complete', true);
+      localStorage.setItem('messmate_user_name', name);
+      localStorage.setItem('messmate_profile_complete', 'true');
       localStorage.setItem('messmate_profile_photo', data.profilePhoto);
       profileComplete = true;
       profilePhoto = data.profilePhoto;
@@ -532,7 +500,6 @@ document.getElementById('logout').addEventListener('click', () => {
   window.location.href = '/';
 });
 
-// Token button handler
 document.getElementById('tokenBtn').addEventListener('click', () => {
   const today = new Date().toDateString();
   const token = localStorage.getItem(`token_${today}_${userEmail}`);
@@ -804,81 +771,54 @@ document.getElementById('periodSelect').addEventListener('change', () => {
   updateFoodChart();
 });
 
-// Make functions globally accessible
 window.openAddToCartModal = openAddToCartModal;
 window.removeFromCart = removeFromCart;
 
-// Initialize
 checkProfile();
 loadMeals();
 loadOrders();
-updateCartBadge();// ============================================================================
-// PUSH NOTIFICATION REGISTRATION FOR STUDENT DASHBOARD
-// Add this code to the END of script.js (student dashboard)
+updateCartBadge();
+
+// ============================================================================
+// PUSH NOTIFICATION REGISTRATION
 // ============================================================================
 
-// Check if service workers and push notifications are supported
 if ('serviceWorker' in navigator && 'PushManager' in window) {
-  console.log('✅ Push notifications are supported');
+  console.log('✅ Push notifications supported');
   initializePushNotifications();
-} else {
-  console.warn('⚠️ Push notifications are not supported in this browser');
 }
 
 async function initializePushNotifications() {
   try {
-    // Step 1: Register the service worker
-    console.log('📝 Registering service worker...');
-    const registration = await navigator.serviceWorker.register('/service-worker.js', {
-      scope: '/'
-    });
-    
-    console.log('✅ Service worker registered:', registration);
-    
-    // Wait for service worker to be ready
+    const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
     await navigator.serviceWorker.ready;
-    console.log('✅ Service worker is ready');
-    
-    // Step 2: Check current notification permission
-    console.log('🔔 Current notification permission:', Notification.permission);
+    console.log('✅ Service worker ready');
     
     if (Notification.permission === 'default') {
-      // Show a friendly prompt before requesting permission
-      showNotificationPrompt();
+      setTimeout(() => showNotificationPrompt(), 2000);
     } else if (Notification.permission === 'granted') {
-      // Permission already granted, subscribe immediately
       await subscribeToPushNotifications(registration);
-    } else {
-      console.log('⚠️ Notification permission was denied');
     }
-    
   } catch (error) {
-    console.error('❌ Error initializing push notifications:', error);
+    console.error('❌ Push init error:', error);
   }
 }
 
 function showNotificationPrompt() {
-  // Create a friendly in-app prompt
   const promptDiv = document.createElement('div');
-  promptDiv.id = 'notification-prompt';
   promptDiv.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-2xl shadow-2xl z-50 max-w-md animate-slide-in';
   promptDiv.innerHTML = `
     <div class="flex items-start gap-4">
       <div class="text-3xl">🔔</div>
       <div class="flex-1">
         <h3 class="font-bold text-lg mb-2">Stay Updated!</h3>
-        <p class="text-sm mb-4 text-white/90">
-          Enable notifications to receive:
-          <br>• Daily meal reminders
-          <br>• Order confirmations
-          <br>• Payment updates
-        </p>
+        <p class="text-sm mb-4">Enable notifications to receive meal reminders & order updates.</p>
         <div class="flex gap-3">
-          <button id="enable-notifications" class="bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-indigo-50 transition-all">
-            Enable Notifications
+          <button id="enable-notifications" class="bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-indigo-50">
+            Enable
           </button>
-          <button id="dismiss-prompt" class="bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20 transition-all">
-            Maybe Later
+          <button id="dismiss-prompt" class="bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20">
+            Later
           </button>
         </div>
       </div>
@@ -888,543 +828,68 @@ function showNotificationPrompt() {
   
   document.body.appendChild(promptDiv);
   
-  // Add event listeners
   document.getElementById('enable-notifications').addEventListener('click', async () => {
     promptDiv.remove();
-    await requestNotificationPermission();
-  });
-  
-  document.getElementById('dismiss-prompt').addEventListener('click', () => {
-    promptDiv.remove();
-    // Ask again in 24 hours
-    localStorage.setItem('notification-prompt-dismissed', Date.now());
-  });
-  
-  document.getElementById('close-prompt').addEventListener('click', () => {
-    promptDiv.remove();
-  });
-}
-
-async function requestNotificationPermission() {
-  try {
-    console.log('🔔 Requesting notification permission...');
     const permission = await Notification.requestPermission();
-    
-    console.log('🔔 Notification permission result:', permission);
-    
     if (permission === 'granted') {
-      console.log('✅ Notification permission granted!');
-      showToast('Notifications enabled! You\'ll receive meal reminders.', 'success');
-      
-      // Subscribe to push notifications
+      showToast('Notifications enabled!', 'success');
       const registration = await navigator.serviceWorker.ready;
       await subscribeToPushNotifications(registration);
-    } else {
-      console.log('⚠️ Notification permission denied');
-      showToast('Notifications disabled. You can enable them later in settings.', 'info');
     }
-  } catch (error) {
-    console.error('❌ Error requesting notification permission:', error);
-    showToast('Error enabling notifications. Please try again.', 'error');
-  }
+  });
+  
+  document.getElementById('dismiss-prompt').addEventListener('click', () => promptDiv.remove());
+  document.getElementById('close-prompt').addEventListener('click', () => promptDiv.remove());
 }
 
 async function subscribeToPushNotifications(registration) {
   try {
-    console.log('📡 Subscribing to push notifications...');
-    
-    // Get the VAPID public key from server
     const vapidResponse = await fetch('/vapid-public-key');
     const { publicKey } = await vapidResponse.json();
     
-    console.log('🔑 Got VAPID public key');
-    
-    // Check if already subscribed
     let subscription = await registration.pushManager.getSubscription();
+    if (subscription) await subscription.unsubscribe();
     
-    if (subscription) {
-      console.log('ℹ️ Already subscribed, updating subscription...');
-      // Unsubscribe first to get a fresh subscription
-      await subscription.unsubscribe();
-    }
-    
-    // Subscribe to push notifications
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey)
     });
     
-    console.log('✅ Push subscription created:', subscription.endpoint);
-    
-    // Send subscription to server
     const response = await fetch('/subscribe', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        email: userEmail,
-        subscription: subscription.toJSON()
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: userEmail, subscription: subscription.toJSON() })
     });
     
     const result = await response.json();
-    
     if (result.success) {
-      console.log('✅ Subscription saved to server');
+      console.log('✅ Subscription saved');
       localStorage.setItem('push-subscription-active', 'true');
-    } else {
-      console.error('❌ Failed to save subscription:', result.error);
     }
-    
   } catch (error) {
-    console.error('❌ Error subscribing to push notifications:', error);
-    if (error.name === 'NotAllowedError') {
-      console.log('⚠️ Push notification permission was denied');
-    }
+    console.error('❌ Subscribe error:', error);
   }
 }
 
-// Utility function to convert VAPID key
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding)
-    .replace(/\-/g, '+')
-    .replace(/_/g, '/');
-  
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
-  
   for (let i = 0; i < rawData.length; ++i) {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
 }
 
-// Function to check and resubscribe if needed
-async function checkNotificationStatus() {
-  try {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      return;
-    }
-    
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    
-    if (!subscription && Notification.permission === 'granted') {
-      console.log('⚠️ Notification permission granted but not subscribed, resubscribing...');
-      await subscribeToPushNotifications(registration);
-    } else if (subscription) {
-      console.log('✅ Push subscription is active');
-    }
-  } catch (error) {
-    console.error('❌ Error checking notification status:', error);
-  }
-}
-
-// Check notification status on page load
-window.addEventListener('load', () => {
-  // Wait a bit for the user email to be set
-  setTimeout(() => {
-    if (userEmail) {
-      checkNotificationStatus();
-    }
-  }, 1000);
-});
-
-
-// ============================================================================
-// PUSH NOTIFICATION REGISTRATION FOR STUDENT DASHBOARD
-// Add this code to the END of script.js (student dashboard)
-// ============================================================================
-
-// Check if service workers and push notifications are supported
-if ('serviceWorker' in navigator && 'PushManager' in window) {
-  console.log('✅ Push notifications are supported');
-  initializePushNotifications();
-} else {
-  console.warn('⚠️ Push notifications are not supported in this browser');
-}
-
-async function initializePushNotifications() {
-  try {
-    // Step 1: Register the service worker
-    console.log('📝 Registering service worker...');
-    const registration = await navigator.serviceWorker.register('/service-worker.js', {
-      scope: '/'
-    });
-    
-    console.log('✅ Service worker registered:', registration);
-    
-    // Wait for service worker to be ready
-    await navigator.serviceWorker.ready;
-    console.log('✅ Service worker is ready');
-    
-    // Step 2: Check current notification permission
-    console.log('🔔 Current notification permission:', Notification.permission);
-    
-    if (Notification.permission === 'default') {
-      // Show a friendly prompt before requesting permission
-      showNotificationPrompt();
-    } else if (Notification.permission === 'granted') {
-      // Permission already granted, subscribe immediately
-      await subscribeToPushNotifications(registration);
-    } else {
-      console.log('⚠️ Notification permission was denied');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error initializing push notifications:', error);
-  }
-}
-
-function showNotificationPrompt() {
-  // Create a friendly in-app prompt
-  const promptDiv = document.createElement('div');
-  promptDiv.id = 'notification-prompt';
-  promptDiv.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-2xl shadow-2xl z-50 max-w-md animate-slide-in';
-  promptDiv.innerHTML = `
-    <div class="flex items-start gap-4">
-      <div class="text-3xl">🔔</div>
-      <div class="flex-1">
-        <h3 class="font-bold text-lg mb-2">Stay Updated!</h3>
-        <p class="text-sm mb-4 text-white/90">
-          Enable notifications to receive:
-          <br>• Daily meal reminders
-          <br>• Order confirmations
-          <br>• Payment updates
-        </p>
-        <div class="flex gap-3">
-          <button id="enable-notifications" class="bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-indigo-50 transition-all">
-            Enable Notifications
-          </button>
-          <button id="dismiss-prompt" class="bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20 transition-all">
-            Maybe Later
-          </button>
-        </div>
-      </div>
-      <button id="close-prompt" class="text-white/80 hover:text-white text-xl">×</button>
-    </div>
-  `;
-  
-  document.body.appendChild(promptDiv);
-  
-  // Add event listeners
-  document.getElementById('enable-notifications').addEventListener('click', async () => {
-    promptDiv.remove();
-    await requestNotificationPermission();
-  });
-  
-  document.getElementById('dismiss-prompt').addEventListener('click', () => {
-    promptDiv.remove();
-    // Ask again in 24 hours
-    localStorage.setItem('notification-prompt-dismissed', Date.now());
-  });
-  
-  document.getElementById('close-prompt').addEventListener('click', () => {
-    promptDiv.remove();
-  });
-}
-
-async function requestNotificationPermission() {
-  try {
-    console.log('🔔 Requesting notification permission...');
-    const permission = await Notification.requestPermission();
-    
-    console.log('🔔 Notification permission result:', permission);
-    
-    if (permission === 'granted') {
-      console.log('✅ Notification permission granted!');
-      showToast('Notifications enabled! You\'ll receive meal reminders.', 'success');
-      
-      // Subscribe to push notifications
-      const registration = await navigator.serviceWorker.ready;
-      await subscribeToPushNotifications(registration);
-    } else {
-      console.log('⚠️ Notification permission denied');
-      showToast('Notifications disabled. You can enable them later in settings.', 'info');
-    }
-  } catch (error) {
-    console.error('❌ Error requesting notification permission:', error);
-    showToast('Error enabling notifications. Please try again.', 'error');
-  }
-}
-
-async function subscribeToPushNotifications(registration) {
-  try {
-    console.log('📡 Subscribing to push notifications...');
-    
-    // Get the VAPID public key from server
-    const vapidResponse = await fetch('/vapid-public-key');
-    const { publicKey } = await vapidResponse.json();
-    
-    console.log('🔑 Got VAPID public key');
-    
-    // Check if already subscribed
-    let subscription = await registration.pushManager.getSubscription();
-    
-    if (subscription) {
-      console.log('ℹ️ Already subscribed, updating subscription...');
-      // Unsubscribe first to get a fresh subscription
-      await subscription.unsubscribe();
-    }
-    
-    // Subscribe to push notifications
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey)
-    });
-    
-    console.log('✅ Push subscription created:', subscription.endpoint);
-    
-    // Send subscription to server
-    const response = await fetch('/subscribe', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        email: userEmail,
-        subscription: subscription.toJSON()
-      })
-    });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-      console.log('✅ Subscription saved to server');
-      localStorage.setItem('push-subscription-active', 'true');
-    } else {
-      console.error('❌ Failed to save subscription:', result.error);
-    }
-    
-  } catch (error) {
-    console.error('❌ Error subscribing to push notifications:', error);
-    if (error.name === 'NotAllowedError') {
-      console.log('⚠️ Push notification permission was denied');
-    }
-  }
-}
-
-// Utility function to convert VAPID key
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding)
-    .replace(/\-/g, '+')
-    .replace(/_/g, '/');
-  
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-// Function to check and resubscribe if needed
-async function checkNotificationStatus() {
-  try {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      return;
-    }
-    
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    
-    if (!subscription && Notification.permission === 'granted') {
-      console.log('⚠️ Notification permission granted but not subscribed, resubscribing...');
-      await subscribeToPushNotifications(registration);
-    } else if (subscription) {
-      console.log('✅ Push subscription is active');
-    }
-  } catch (error) {
-    console.error('❌ Error checking notification status:', error);
-  }
-}
-
-// Check notification status on page load
-window.addEventListener('load', () => {
-  // Wait a bit for the user email to be set
-  setTimeout(() => {
-    if (userEmail) {
-      checkNotificationStatus();
-    }
-  }, 1000);
-});
-
-// Add CSS for the animation
 const style = document.createElement('style');
 style.textContent = `
   @keyframes slide-in {
-    from {
-      transform: translateX(100%);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
   }
-  .animate-slide-in {
-    animation: slide-in 0.3s ease-out;
-  }
+  .animate-slide-in { animation: slide-in 0.3s ease-out; }
 `;
 document.head.appendChild(style);
 
-console.log('✅ Push notification registration script loaded');
-
-// Add CSS for the animation
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes slide-in {
-    from {
-      transform: translateX(100%);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
-  .animate-slide-in {
-    animation: slide-in 0.3s ease-out;
-  }
-`;
-
-
-// ============================================================================
-// NOTIFICATION DIAGNOSTIC SCRIPT
-// Add this temporarily to your student dashboard to test notifications
-// ============================================================================
-
-console.log('🔍 === NOTIFICATION DIAGNOSTIC STARTING ===');
-
-// Test 1: Check browser support
-console.log('\n📋 Test 1: Browser Support');
-console.log('Service Worker supported:', 'serviceWorker' in navigator);
-console.log('Push Manager supported:', 'PushManager' in window);
-console.log('Notifications supported:', 'Notification' in window);
-
-// Test 2: Check notification permission
-console.log('\n🔔 Test 2: Notification Permission');
-console.log('Current permission:', Notification ? Notification.permission : 'N/A');
-
-// Test 3: Check service worker registration
-console.log('\n📝 Test 3: Service Worker Status');
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(registrations => {
-    console.log('Registered service workers:', registrations.length);
-    registrations.forEach((reg, index) => {
-      console.log(`  [${index}] Scope: ${reg.scope}`);
-      console.log(`  [${index}] Active: ${!!reg.active}`);
-    });
-    
-    if (registrations.length === 0) {
-      console.warn('⚠️ No service worker registered! This is the problem.');
-      console.log('💡 Solution: Add service worker registration code to script.js');
-    }
-  });
-  
-  // Test 4: Check push subscription
-  console.log('\n📡 Test 4: Push Subscription Status');
-  navigator.serviceWorker.ready.then(registration => {
-    registration.pushManager.getSubscription().then(subscription => {
-      if (subscription) {
-        console.log('✅ Push subscription exists');
-        console.log('Endpoint:', subscription.endpoint);
-        console.log('Keys:', {
-          p256dh: subscription.toJSON().keys.p256dh.substring(0, 20) + '...',
-          auth: subscription.toJSON().keys.auth.substring(0, 20) + '...'
-        });
-      } else {
-        console.warn('⚠️ No push subscription found!');
-        console.log('💡 Solution: Need to call pushManager.subscribe()');
-      }
-    }).catch(err => {
-      console.error('❌ Error getting subscription:', err);
-    });
-  }).catch(err => {
-    console.error('❌ Service worker not ready:', err);
-  });
-} else {
-  console.error('❌ Service workers not supported in this browser');
-}
-
-// Test 5: Check server endpoints
-console.log('\n🌐 Test 5: Server Endpoints');
-
-fetch('/vapid-public-key')
-  .then(res => res.json())
-  .then(data => {
-    console.log('✅ VAPID endpoint working');
-    console.log('Public key:', data.publicKey ? data.publicKey.substring(0, 20) + '...' : 'MISSING!');
-    if (!data.publicKey) {
-      console.error('❌ VAPID public key is missing from server!');
-    }
-  })
-  .catch(err => {
-    console.error('❌ VAPID endpoint failed:', err);
-    console.log('💡 Check if server is running and endpoint exists');
-  });
-
-// Test 6: Check if user is logged in
-console.log('\n👤 Test 6: User Authentication');
-const email = localStorage.getItem('messmate_user_email');
-console.log('User email:', email || 'NOT LOGGED IN');
-if (!email) {
-  console.warn('⚠️ User not logged in - notifications require user email');
-}
-
-// Test 7: Try to request notification permission (commented out - uncomment to test)
-console.log('\n🔔 Test 7: Test Notification Permission Request');
-console.log('To test permission request, run this in console:');
-console.log('Notification.requestPermission().then(perm => console.log("Permission:", perm))');
-
-// Summary
-console.log('\n📊 === DIAGNOSTIC SUMMARY ===');
-setTimeout(() => {
-  const issues = [];
-  
-  if (!('serviceWorker' in navigator)) {
-    issues.push('❌ Browser does not support service workers');
-  }
-  
-  if (!('PushManager' in window)) {
-    issues.push('❌ Browser does not support push notifications');
-  }
-  
-  if (Notification && Notification.permission === 'denied') {
-    issues.push('⚠️ User has denied notification permission');
-  }
-  
-  if (!localStorage.getItem('messmate_user_email')) {
-    issues.push('⚠️ User is not logged in');
-  }
-  
-  if (issues.length === 0) {
-    console.log('✅ All basic checks passed!');
-    console.log('💡 If notifications still not working, check:');
-    console.log('   1. Service worker is registered');
-    console.log('   2. Push subscription is created');
-    console.log('   3. Subscription is saved to server');
-  } else {
-    console.log('⚠️ Issues found:');
-    issues.forEach(issue => console.log('   ' + issue));
-  }
-  
-  console.log('\n🔧 Next Steps:');
-  console.log('1. Replace script.js with the updated version');
-  console.log('2. Reload the page');
-  console.log('3. Accept notification permission when prompted');
-  console.log('4. Check console for "Push subscription saved to server"');
-  console.log('5. Ask producer to send a test notification');
-  
-}, 2000);
-
-console.log('\n✅ Diagnostic complete - check results above');
-
-
-document.head.appendChild(style);
-
-console.log('✅ Push notification registration script loaded');
+console.log('✅ MessMate dashboard loaded with notifications');
