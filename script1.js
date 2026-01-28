@@ -1,6 +1,4 @@
-// script1.js - Producer Dashboard Logic (Improved)
-// Place this file in the same directory as dashboard1.html
-
+// script1.js - Producer Dashboard Logic with Notifications
 const userEmail = localStorage.getItem('messmate_user_email');
 const userRole = localStorage.getItem('messmate_user_role') || 'producer';
 const userName = localStorage.getItem('messmate_user_name') || '';
@@ -21,6 +19,180 @@ document.getElementById('logout').addEventListener('click', () => {
 const periodSelect = document.getElementById('periodSelect');
 let html5QrCode;
 let currentPending = [];
+let producerNotificationSSE = null;
+let notificationSound = document.getElementById('notificationSound');
+
+// ==================== NOTIFICATION SYSTEM ====================
+
+// Initialize producer notification listener
+function initProducerNotifications() {
+  try {
+    producerNotificationSSE = new EventSource('/sse-producer-notifications');
+    
+    producerNotificationSSE.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Producer notification received:', data);
+        handleProducerNotification(data);
+      } catch (err) {
+        console.error('Error parsing notification:', err);
+      }
+    };
+
+    producerNotificationSSE.onerror = (err) => {
+      console.error('SSE Error:', err);
+      producerNotificationSSE.close();
+      // Reconnect after 5 seconds
+      setTimeout(initProducerNotifications, 5000);
+    };
+
+    console.log('✅ Producer notifications initialized');
+  } catch (err) {
+    console.error('Failed to init producer notifications:', err);
+  }
+}
+
+function handleProducerNotification(data) {
+  // Play notification sound
+  playNotificationSound();
+  
+  // Show notification dot
+  showNotificationDot();
+  
+  // Ring the bell
+  ringBell();
+  
+  // Add to notification list
+  addNotificationToList(data);
+  
+  // Show toast
+  showToast(data.message, 'info');
+}
+
+function playNotificationSound() {
+  try {
+    notificationSound.currentTime = 0;
+    notificationSound.play().catch(err => {
+      console.log('Could not play notification sound:', err);
+    });
+  } catch (err) {
+    console.error('Sound play error:', err);
+  }
+}
+
+function ringBell() {
+  const bell = document.getElementById('notificationBell');
+  bell.classList.add('bell-ringing');
+  setTimeout(() => bell.classList.remove('bell-ringing'), 500);
+}
+
+function showNotificationDot() {
+  document.getElementById('notificationDot').classList.remove('hidden');
+}
+
+function hideNotificationDot() {
+  document.getElementById('notificationDot').classList.add('hidden');
+}
+
+function addNotificationToList(data) {
+  const listContainer = document.getElementById('notificationList');
+  
+  // Remove "no notifications" message
+  if (listContainer.querySelector('.text-center')) {
+    listContainer.innerHTML = '';
+  }
+  
+  const notification = document.createElement('div');
+  notification.className = 'bg-slate-700/50 p-4 rounded-xl border border-slate-600/50 hover:border-indigo-500/50 transition-all';
+  
+  const icon = data.type === 'daily_reminder_sent' ? 'fa-bell' : 
+               data.type === 'manual_alert' ? 'fa-exclamation-circle' : 'fa-info-circle';
+  
+  notification.innerHTML = `
+    <div class="flex items-start gap-3">
+      <i class="fas ${icon} text-orange-400 text-xl mt-1"></i>
+      <div class="flex-1">
+        <p class="text-white font-semibold mb-1">${data.message}</p>
+        <p class="text-slate-400 text-sm">${new Date().toLocaleTimeString()}</p>
+        ${data.users ? `
+          <div class="mt-2">
+            <p class="text-slate-300 text-sm mb-2">Students without orders:</p>
+            <div class="max-h-32 overflow-y-auto space-y-1">
+              ${data.users.slice(0, 5).map(u => `
+                <p class="text-xs text-slate-400">• ${u.name} (${u.email})</p>
+              `).join('')}
+              ${data.users.length > 5 ? `<p class="text-xs text-slate-400 font-semibold">...and ${data.users.length - 5} more</p>` : ''}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+  
+  listContainer.insertBefore(notification, listContainer.firstChild);
+  
+  // Keep only last 10 notifications
+  while (listContainer.children.length > 10) {
+    listContainer.removeChild(listContainer.lastChild);
+  }
+}
+
+// Toggle notification panel
+document.getElementById('notificationBell').addEventListener('click', () => {
+  const panel = document.getElementById('notificationPanel');
+  panel.classList.toggle('hidden');
+  hideNotificationDot();
+});
+
+// Close notification panel when clicking outside
+document.addEventListener('click', (e) => {
+  const bell = document.getElementById('notificationBell');
+  const panel = document.getElementById('notificationPanel');
+  if (!bell.contains(e.target) && !panel.contains(e.target)) {
+    panel.classList.add('hidden');
+  }
+});
+
+// Send reminder button
+document.getElementById('sendReminderBtn').addEventListener('click', async () => {
+  try {
+    const btn = document.getElementById('sendReminderBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Sending...';
+    
+    const res = await fetch('/trigger-producer-alert', { method: 'POST' });
+    const data = await res.json();
+    
+    if (data.success) {
+      showToast(`Found ${data.count} students without orders`, 'success');
+      
+      // If there are users, offer to send reminders
+      if (data.count > 0) {
+        if (confirm(`Send reminder to ${data.count} students who haven't ordered?`)) {
+          const userEmails = data.users ? data.users.map(u => u.email) : [];
+          const reminderRes = await fetch('/send-reminder-to-users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userEmails })
+          });
+          const reminderData = await reminderRes.json();
+          
+          if (reminderData.success) {
+            showToast(`Reminders sent to ${reminderData.sent} students`, 'success');
+          }
+        }
+      }
+    }
+  } catch (err) {
+    showToast('Error sending alerts', 'error');
+  } finally {
+    const btn = document.getElementById('sendReminderBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Send Reminders';
+  }
+});
+
+// ==================== EXISTING CODE (Scanner, Verification, etc) ====================
 
 // Render pending verifications
 function renderPending() {
@@ -136,9 +308,24 @@ async function handleScan(qrData) {
 }
 
 function showErrorToast(message) {
+  showToast(message, 'error');
+}
+
+function showToast(message, type = 'info') {
   const toast = document.createElement('div');
-  toast.className = 'fixed top-4 right-4 bg-red-500/90 text-white px-6 py-4 rounded-xl shadow-lg z-50 backdrop-blur-sm';
-  toast.innerHTML = `<i class="fas fa-exclamation-triangle mr-2"></i> ${message}`;
+  const colors = {
+    success: 'bg-emerald-500/90',
+    error: 'bg-red-500/90',
+    info: 'bg-blue-500/90'
+  };
+  const icons = {
+    success: 'fa-check-circle',
+    error: 'fa-exclamation-triangle',
+    info: 'fa-info-circle'
+  };
+  
+  toast.className = `fixed top-4 right-4 ${colors[type]} text-white px-6 py-4 rounded-xl shadow-lg z-50 backdrop-blur-sm`;
+  toast.innerHTML = `<i class="fas ${icons[type]} mr-2"></i> ${message}`;
   document.body.appendChild(toast);
   setTimeout(() => {
     toast.classList.add('opacity-0', 'transform', 'translate-x-full');
@@ -202,23 +389,16 @@ window.verifyOrder = async (userEmail, index) => {
     });
     const result = await res.json();
     if (result.success) {
-      const successToast = document.createElement('div');
-      successToast.className = 'fixed top-4 right-4 bg-emerald-500/90 text-white px-6 py-4 rounded-xl shadow-lg z-50 backdrop-blur-sm';
-      successToast.innerHTML = '<i class="fas fa-check-double mr-2"></i> Order verified successfully!';
-      document.body.appendChild(successToast);
-      setTimeout(() => {
-        successToast.classList.add('opacity-0', 'transform', 'translate-x-full');
-        setTimeout(() => successToast.remove(), 300);
-      }, 3000);
+      showToast('Order verified successfully!', 'success');
       if (index > -1) currentPending.splice(index, 1);
       renderPending();
       loadStats(periodSelect.value);
       document.getElementById('verifyModal').classList.add('hidden');
     } else {
-      showErrorToast('Verification failed: ' + result.error);
+      showToast('Verification failed: ' + result.error, 'error');
     }
   } catch (e) {
-    showErrorToast('Error verifying: ' + e.message);
+    showToast('Error verifying: ' + e.message, 'error');
   }
 };
 
@@ -280,3 +460,4 @@ function startSSE() {
 loadStats('day');
 renderPending();
 startSSE();
+initProducerNotifications();

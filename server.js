@@ -1,4 +1,4 @@
-// server.js - Updated with Profile Setup & Token Pass System with Payment
+// server.js - Updated with Push Notifications & Daily Reminders
 const express = require("express");
 require("dotenv").config();
 const mongoose = require("mongoose");
@@ -12,14 +12,27 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const { OAuth2Client } = require('google-auth-library');
+const webpush = require('web-push');
+const cron = require('node-cron');
 
 const app = express();
 app.use(bodyParser.json());
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 'https://your-render-app.onrender.com' : '*',
+  origin: process.env.NODE_ENV === 'production' ? process.env.FRONTEND_URL || 'https://your-render-app.onrender.com' : '*',
   credentials: true
 }));
 app.use(express.static(__dirname));
+
+// Web Push Configuration
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BHxzQRQvqZ8Cd7TJOJkKw1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'YOUR_PRIVATE_KEY_HERE';
+const VAPID_MAILTO = process.env.VAPID_MAILTO || 'mailto:your-email@example.com';
+
+webpush.setVapidDetails(
+  VAPID_MAILTO,
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY
+);
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "67430401790-jdomcgb5s0vcvsp6ln56j3g3aem2h26v.apps.googleusercontent.com";
 const client = new OAuth2Client(CLIENT_ID);
@@ -65,6 +78,7 @@ mongoose.connect(mongoURI, {
   process.exit(1);
 });
 
+// Updated User Schema with Push Subscription
 const userSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
@@ -73,12 +87,26 @@ const userSchema = new mongoose.Schema({
   profilePhoto: String,
   profilePhotoId: String,
   profileComplete: { type: Boolean, default: false },
+  pushSubscription: {
+    endpoint: String,
+    keys: {
+      p256dh: String,
+      auth: String
+    }
+  },
+  notificationPreferences: {
+    dailyReminder: { type: Boolean, default: true },
+    orderUpdates: { type: Boolean, default: true },
+    paymentReminders: { type: Boolean, default: true }
+  },
   orders: [{
     mealName: String,
     price: Number,
     date: { type: Date, default: Date.now },
     paid: { type: Boolean, default: false },
-    token: String
+    token: String,
+    day: String,
+    batch: String
   }],
   verifiedToday: {
     date: String,
@@ -98,6 +126,8 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+const User = mongoose.model("User", userSchema);
+
 const mealSchema = new mongoose.Schema({
   name: { type: String, unique: true },
   image: String,
@@ -111,8 +141,10 @@ const mealSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+const Meal = mongoose.model("Meal", mealSchema);
+
 const tokenSchema = new mongoose.Schema({
-  token: { type: String, unique: true, required: true },
+  token: { type: String, required: true },
   date: { type: String, required: true },
   userEmail: { type: String, required: true },
   userName: { type: String, required: true },
@@ -139,388 +171,667 @@ const tokenSchema = new mongoose.Schema({
   }
 });
 
-const User = mongoose.model("User", userSchema);
-const Meal = mongoose.model("Meal", mealSchema);
+tokenSchema.index({ token: 1, date: 1 }, { unique: true });
 const Token = mongoose.model("Token", tokenSchema);
 
-let ratingClients = [];
+// Notification Log Schema
+const notificationLogSchema = new mongoose.Schema({
+  userEmail: String,
+  type: { type: String, enum: ['daily_reminder', 'payment_reminder', 'order_update', 'producer_alert'] },
+  title: String,
+  message: String,
+  sentAt: { type: Date, default: Date.now },
+  success: Boolean,
+  error: String
+});
 
-async function generateDailyToken(date) {
-  const dateStr = date.toDateString();
-  const count = await Token.countDocuments({ date: dateStr });
-  return `${count + 1}`;
-}
+const NotificationLog = mongoose.model("NotificationLog", notificationLogSchema);
 
-// 4. Update the cleanExpiredTokens function
-async function cleanExpiredTokens() {
-  const now = new Date();
-  
-  // Only delete tokens that are expired, unpaid, and unverified
-  await Token.deleteMany({ 
-    expiresAt: { $lt: now },
-    paid: false,
-    verified: false 
-  });
-  console.log("🧹 Cleaned expired unpaid tokens");
-}
+// SSE connections
+let sseClients = [];
+let producerSSEClients = [];
 
+// ==================== PUSH NOTIFICATION FUNCTIONS ====================
 
-setInterval(cleanExpiredTokens, 60 * 60 * 1000);
-
-async function initMeals() {
+// Save push subscription
+app.post('/subscribe', async (req, res) => {
   try {
-    const mealCount = await Meal.countDocuments();
-    if (mealCount === 0) {
-      await Meal.insertMany([
-        {
-          name: "Meal 1",
-          image: "https://via.placeholder.com/400x300/667eea/ffffff?text=Meal+1",
-          description: "Sample Meal 1 - delicious and filling.",
-          price: 100,
-          avgRating: 0,
-          totalRatings: 0,
-          ratings: []
-        },
-        {
-          name: "Meal 2",
-          image: "https://via.placeholder.com/400x300/764ba2/ffffff?text=Meal+2",
-          description: "Sample Meal 2 - chef's special.",
-          price: 120,
-          avgRating: 0,
-          totalRatings: 0,
-          ratings: []
-        }
-      ]);
-      console.log("✅ Meals initialized");
+    const { email, subscription } = req.body;
+    
+    if (!email || !subscription) {
+      return res.status(400).json({ success: false, error: 'Missing email or subscription' });
     }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    user.pushSubscription = subscription;
+    await user.save();
+
+    console.log(`✅ Push subscription saved for ${email}`);
+    res.json({ success: true, message: 'Subscription saved successfully' });
   } catch (err) {
-    console.error("Error initializing meals:", err.message);
+    console.error('Subscription error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get VAPID public key
+app.get('/vapid-public-key', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+// Send push notification to a user
+async function sendPushNotification(userEmail, payload) {
+  try {
+    const user = await User.findOne({ email: userEmail });
+    
+    if (!user || !user.pushSubscription) {
+      console.log(`⚠️ No push subscription for ${userEmail}`);
+      return { success: false, error: 'No subscription found' };
+    }
+
+    const notificationPayload = JSON.stringify({
+      title: payload.title,
+      body: payload.body,
+      icon: payload.icon || '/icon-192x192.png',
+      badge: payload.badge || '/badge-72x72.png',
+      data: payload.data || {}
+    });
+
+    await webpush.sendNotification(user.pushSubscription, notificationPayload);
+    
+    // Log successful notification
+    await new NotificationLog({
+      userEmail,
+      type: payload.type || 'order_update',
+      title: payload.title,
+      message: payload.body,
+      success: true
+    }).save();
+
+    console.log(`✅ Push notification sent to ${userEmail}`);
+    return { success: true };
+  } catch (err) {
+    console.error(`❌ Error sending push to ${userEmail}:`, err.message);
+    
+    // Log failed notification
+    await new NotificationLog({
+      userEmail,
+      type: payload.type || 'order_update',
+      title: payload.title,
+      message: payload.body,
+      success: false,
+      error: err.message
+    }).save();
+
+    // If subscription is invalid, remove it
+    if (err.statusCode === 410) {
+      const user = await User.findOne({ email: userEmail });
+      if (user) {
+        user.pushSubscription = null;
+        await user.save();
+        console.log(`🗑️ Removed invalid subscription for ${userEmail}`);
+      }
+    }
+
+    return { success: false, error: err.message };
   }
 }
 
-function broadcastRatingUpdate(mealName, avgRating, totalRatings) {
-  const message = `data: ${JSON.stringify({ mealName, avgRating, totalRatings })}\n\n`;
-  ratingClients.forEach(res => {
+// Send notification to all users with specific filter
+async function sendBulkNotification(filter, payload) {
+  try {
+    const users = await User.find(filter);
+    console.log(`📢 Sending bulk notification to ${users.length} users`);
+
+    const results = await Promise.allSettled(
+      users.map(user => sendPushNotification(user.email, payload))
+    );
+
+    const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const failed = results.length - successful;
+
+    console.log(`✅ Bulk notification complete: ${successful} sent, ${failed} failed`);
+    return { successful, failed };
+  } catch (err) {
+    console.error('Bulk notification error:', err);
+    return { successful: 0, failed: 0, error: err.message };
+  }
+}
+
+// ==================== CRON JOBS ====================
+
+// Daily reminder at 10 AM (Monday to Saturday only, excluding Sunday)
+cron.schedule('0 10 * * 1-6', async () => {
+  console.log('🔔 Running daily order reminder at 10 AM...');
+  
+  try {
+    const today = new Date().toDateString();
+    
+    // Find all students who haven't ordered today
+    const allStudents = await User.find({ role: 'student' });
+    const usersWithoutOrders = [];
+
+    for (const student of allStudents) {
+      const hasOrderedToday = student.orders.some(
+        order => new Date(order.date).toDateString() === today
+      );
+
+      if (!hasOrderedToday && student.notificationPreferences.dailyReminder) {
+        usersWithoutOrders.push(student);
+      }
+    }
+
+    console.log(`📊 Found ${usersWithoutOrders.length} students without orders today`);
+
+    if (usersWithoutOrders.length > 0) {
+      const payload = {
+        title: '🍽️ MessMate Order Reminder',
+        body: 'Don\'t forget to place your meal order for today! Orders close soon.',
+        icon: '/icon-192x192.png',
+        type: 'daily_reminder',
+        data: {
+          url: '/dashboard',
+          action: 'order_now'
+        }
+      };
+
+      // Send to all users without orders
+      for (const user of usersWithoutOrders) {
+        await sendPushNotification(user.email, payload);
+      }
+
+      // Notify producer dashboard
+      notifyProducerDashboard({
+        type: 'daily_reminder_sent',
+        count: usersWithoutOrders.length,
+        message: `Daily reminder sent to ${usersWithoutOrders.length} students`
+      });
+    }
+  } catch (err) {
+    console.error('❌ Daily reminder cron error:', err);
+  }
+});
+
+// Cleanup expired tokens daily at midnight
+cron.schedule('0 0 * * *', async () => {
+  console.log('🧹 Cleaning up expired tokens...');
+  try {
+    const result = await Token.deleteMany({
+      expiresAt: { $lt: new Date() },
+      verified: false
+    });
+    console.log(`✅ Deleted ${result.deletedCount} expired tokens`);
+  } catch (err) {
+    console.error('❌ Token cleanup error:', err);
+  }
+});
+
+// ==================== PRODUCER NOTIFICATION FUNCTIONS ====================
+
+// Notify producer dashboard via SSE
+function notifyProducerDashboard(data) {
+  producerSSEClients.forEach(client => {
     try {
-      res.write(message);
+      client.write(`data: ${JSON.stringify(data)}\n\n`);
     } catch (err) {
-      console.error("Error broadcasting:", err);
+      console.error('Error sending to producer client:', err);
     }
   });
 }
 
-app.get("/sse-ratings", (req, res) => {
+// Producer SSE endpoint for real-time notifications
+app.get('/sse-producer-notifications', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  
-  ratingClients.push(res);
-  
+  res.flushHeaders();
+
+  producerSSEClients.push(res);
+  console.log('🔌 Producer connected to notification stream');
+
   req.on('close', () => {
-    ratingClients = ratingClients.filter(client => client !== res);
+    producerSSEClients = producerSSEClients.filter(client => client !== res);
+    console.log('🔌 Producer disconnected from notification stream');
   });
 });
 
-app.post("/auth/google", async (req, res) => {
+// Manual producer notification trigger
+app.post('/trigger-producer-alert', async (req, res) => {
+  try {
+    const today = new Date().toDateString();
+    const allStudents = await User.find({ role: 'student' });
+    const usersWithoutOrders = [];
+
+    for (const student of allStudents) {
+      const hasOrderedToday = student.orders.some(
+        order => new Date(order.date).toDateString() === today
+      );
+      if (!hasOrderedToday) {
+        usersWithoutOrders.push(student);
+      }
+    }
+
+    notifyProducerDashboard({
+      type: 'manual_alert',
+      count: usersWithoutOrders.length,
+      message: `${usersWithoutOrders.length} students haven't ordered yet today`,
+      users: usersWithoutOrders.map(u => ({ name: u.name, email: u.email }))
+    });
+
+    res.json({
+      success: true,
+      count: usersWithoutOrders.length,
+      message: 'Alert sent to producer dashboard'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Send reminder to specific users (producer triggered)
+app.post('/send-reminder-to-users', async (req, res) => {
+  try {
+    const { userEmails } = req.body;
+    
+    if (!userEmails || userEmails.length === 0) {
+      return res.json({ success: false, error: 'No users specified' });
+    }
+
+    const payload = {
+      title: '⏰ Last Call for Orders!',
+      body: 'This is your final reminder to place your meal order for today.',
+      icon: '/icon-192x192.png',
+      type: 'payment_reminder',
+      data: {
+        url: '/dashboard',
+        action: 'order_now'
+      }
+    };
+
+    let sent = 0;
+    for (const email of userEmails) {
+      const result = await sendPushNotification(email, payload);
+      if (result.success) sent++;
+    }
+
+    res.json({
+      success: true,
+      sent,
+      total: userEmails.length,
+      message: `Reminders sent to ${sent}/${userEmails.length} users`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==================== EXISTING ENDPOINTS (Keeping all your original code) ====================
+
+async function generateDailyToken(date) {
+  const dateStr = date.toDateString();
+  
+  let retries = 5;
+  while (retries > 0) {
+    try {
+      const lastToken = await Token.findOne({ date: dateStr })
+        .sort({ createdAt: -1, token: -1 })
+        .select('token');
+      
+      let nextTokenNum = 1;
+      if (lastToken && lastToken.token) {
+        const tokenNum = parseInt(lastToken.token);
+        if (!isNaN(tokenNum)) {
+          nextTokenNum = tokenNum + 1;
+        }
+      }
+      
+      return nextTokenNum.toString();
+    } catch (err) {
+      retries--;
+      if (retries === 0) {
+        console.error("Failed to generate sequential token, using fallback");
+        return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+}
+
+async function initMeals() {
+  try {
+    const count = await Meal.countDocuments();
+    if (count === 0) {
+      const defaultMeals = [
+        { name: "Masala Dosa", description: "Crispy dosa with spicy potato filling", price: 40 },
+        { name: "Idli Sambar", description: "Steamed rice cakes with lentil curry", price: 30 },
+        { name: "Paneer Butter Masala", description: "Rich and creamy paneer curry", price: 90 },
+        { name: "Veg Biryani", description: "Aromatic rice with mixed vegetables", price: 80 },
+        { name: "Chole Bhature", description: "Spicy chickpea curry with fried bread", price: 70 }
+      ];
+      await Meal.insertMany(defaultMeals);
+      console.log("✅ Default meals initialized");
+    }
+  } catch (err) {
+    console.error("Error initializing meals:", err);
+  }
+}
+
+// Google OAuth
+app.post('/auth/google', async (req, res) => {
   try {
     const { token } = req.body;
-    
-    if (!token) {
-      return res.status(400).json({ success: false, error: "Token is required" });
-    }
-    
     const ticket = await client.verifyIdToken({
       idToken: token,
       audience: CLIENT_ID
     });
-    
     const payload = ticket.getPayload();
-    const email = payload['email'];
-    const name = payload['name'];
-    
+    const email = payload.email;
+    const name = payload.name;
+    const picture = payload.picture;
+
     if (!email.endsWith('@vvce.ac.in')) {
-      return res.status(403).json({ 
-        success: false, 
-        error: "Please use your @vvce.ac.in email address" 
-      });
+      return res.json({ success: false, error: 'Please use your @vvce.ac.in email' });
     }
-    
+
     let user = await User.findOne({ email });
-    
     if (!user) {
       user = new User({
-        name: name,
-        email: email,
-        password: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10),
-        role: "student",
+        name,
+        email,
+        role: 'student',
+        profilePhoto: picture,
         profileComplete: false
       });
       await user.save();
+      console.log(`✅ New user registered via Google: ${email}`);
     }
-    
-    res.json({ 
-      success: true, 
-      role: user.role, 
-      email: user.email, 
+
+    res.json({
+      success: true,
+      email: user.email,
       name: user.name,
-      profileComplete: user.profileComplete,
-      profilePhoto: user.profilePhoto
+      role: user.role,
+      profileComplete: user.profileComplete
     });
   } catch (err) {
-    console.error("Google Auth error:", err.message);
-    res.status(500).json({ 
-      success: false, 
-      error: "Authentication failed" 
-    });
+    console.error('Google auth error:', err);
+    res.status(500).json({ success: false, error: 'Authentication failed' });
   }
 });
 
+// Regular login
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.json({ success: false, error: "User not found" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.json({ success: false, error: "Invalid password" });
+    }
+
+    res.json({
+      success: true,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      profileComplete: user.profileComplete
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Register
 app.post("/register", async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
     
-    if (!email || !password || !name) {
-      return res.json({ success: false, error: "Missing required fields" });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.json({ success: false, error: "duplicate" });
     }
-    
-    const existing = await User.findOne({ email });
-    if (existing) return res.json({ success: false, error: "duplicate" });
-    
-    const hashed = await bcrypt.hash(password, 10);
-    const user = await new User({ 
-      name, 
-      email, 
-      password: hashed, 
-      role,
-      profileComplete: false 
-    }).save();
-    
-    res.json({ 
-      success: true, 
-      role: user.role, 
-      email: user.email, 
-      name: user.name,
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({
+      name,
+      email,
+      password: hashedPassword,
+      role: role || "student",
       profileComplete: false
     });
-  } catch (err) {
-    console.error("Register error:", err.message);
-    res.json({ success: false, error: err.message });
-  }
-});
 
-app.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.json({ success: false, error: "Missing email or password" });
-    }
-    
-    const user = await User.findOne({ email });
-    if (!user) return res.json({ success: false, error: "Invalid credentials" });
-    
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.json({ success: false, error: "Invalid credentials" });
-    
-    res.json({ 
-      success: true, 
-      role: user.role, 
-      email: user.email, 
-      name: user.name,
-      profileComplete: user.profileComplete,
-      profilePhoto: user.profilePhoto
+    await newUser.save();
+    console.log(`✅ New user registered: ${email} (${role})`);
+
+    res.json({
+      success: true,
+      email: newUser.email,
+      name: newUser.name,
+      role: newUser.role,
+      profileComplete: newUser.profileComplete
     });
   } catch (err) {
-    console.error("Login error:", err.message);
-    res.json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.post("/update-profile", uploadProfile.single('photo'), async (req, res) => {
+// Profile completion
+app.post('/complete-profile', uploadProfile.single('profilePhoto'), async (req, res) => {
   try {
-    const { email, name } = req.body;
+    const { email } = req.body;
     
     if (!email) {
-      return res.status(400).json({ success: false, error: "Email required" });
+      return res.json({ success: false, error: 'Email is required' });
     }
-    
+
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+      return res.json({ success: false, error: 'User not found' });
     }
-    
-    if (req.file && user.profilePhotoId) {
-      try {
-        await cloudinary.uploader.destroy(user.profilePhotoId);
-      } catch (err) {
-        console.error("Error deleting old photo:", err);
-      }
-    }
-    
-    if (name) user.name = name;
+
     if (req.file) {
+      if (user.profilePhotoId) {
+        await cloudinary.uploader.destroy(user.profilePhotoId);
+      }
       user.profilePhoto = req.file.path;
       user.profilePhotoId = req.file.filename;
     }
-    
+
     user.profileComplete = true;
     await user.save();
-    
-    res.json({ 
-      success: true, 
-      name: user.name,
+
+    res.json({
+      success: true,
       profilePhoto: user.profilePhoto,
-      profileComplete: user.profileComplete
+      message: 'Profile completed successfully'
     });
   } catch (err) {
-    console.error("Profile update error:", err.message);
+    console.error('Profile completion error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// Get user profile
+app.get('/user/:email', async (req, res) => {
+  try {
+    const user = await User.findOne({ email: req.params.email });
+    if (!user) {
+      return res.json({ success: false, error: 'User not found' });
+    }
+    res.json({
+      success: true,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      profilePhoto: user.profilePhoto,
+      profileComplete: user.profileComplete,
+      notificationPreferences: user.notificationPreferences
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Update notification preferences
+app.post('/update-notification-preferences', async (req, res) => {
+  try {
+    const { email, preferences } = req.body;
+    
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.json({ success: false, error: 'User not found' });
+    }
+
+    user.notificationPreferences = {
+      ...user.notificationPreferences,
+      ...preferences
+    };
+    await user.save();
+
+    res.json({ success: true, preferences: user.notificationPreferences });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get meals
 app.get("/meals", async (req, res) => {
   try {
-    const meals = await Meal.find().sort({ createdAt: -1 });
-    const mealsWithRating = meals.map(m => {
-      const avg = m.ratings.length ? (m.ratings.reduce((a,b)=>a+b,0) / m.ratings.length) : 0;
-      return {
-        _id: m._id,
-        name: m.name,
-        image: m.image,
-        description: m.description,
-        price: m.price,
-        avgRating: avg ? Number(avg.toFixed(1)) : 0,
-        totalRatings: m.ratings.length
-      };
-    });
-    res.json(mealsWithRating);
+    const meals = await Meal.find().sort({ name: 1 });
+    res.json(meals);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// Add meal
 app.post("/add-meal", uploadMeal.single('image'), async (req, res) => {
   try {
     const { name, price, description } = req.body;
     
     if (!name || !price) {
-      return res.status(400).json({ success: false, error: "Name and price required" });
+      return res.json({ success: false, error: "Name and price are required" });
     }
-    
+
     const existing = await Meal.findOne({ name });
     if (existing) {
-      return res.status(400).json({ success: false, error: "Meal exists" });
+      return res.json({ success: false, error: "Meal already exists" });
     }
-    
-    const mealData = {
+
+    const meal = new Meal({
       name,
       price: Number(price),
-      description: description || '',
-      image: req.file ? req.file.path : 'https://via.placeholder.com/400x300/667eea/ffffff?text=No+Image',
-      cloudinaryId: req.file ? req.file.filename : null,
-      avgRating: 0,
-      totalRatings: 0,
-      ratings: []
-    };
-    
-    const meal = new Meal(mealData);
+      description,
+      image: req.file ? req.file.path : null,
+      cloudinaryId: req.file ? req.file.filename : null
+    });
+
     await meal.save();
-    
+    console.log(`✅ New meal added: ${name}`);
     res.json({ success: true, meal });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// Update meal
 app.put("/update-meal/:id", uploadMeal.single('image'), async (req, res) => {
   try {
-    const { id } = req.params;
     const { name, price, description } = req.body;
+    const meal = await Meal.findById(req.params.id);
     
-    const meal = await Meal.findById(id);
     if (!meal) {
-      return res.status(404).json({ success: false, error: "Meal not found" });
+      return res.json({ success: false, error: "Meal not found" });
     }
-    
-    if (req.file && meal.cloudinaryId) {
-      try {
-        await cloudinary.uploader.destroy(meal.cloudinaryId);
-      } catch (err) {
-        console.error("Error deleting old image:", err);
-      }
-    }
-    
-    meal.name = name || meal.name;
-    meal.price = price ? Number(price) : meal.price;
-    meal.description = description !== undefined ? description : meal.description;
-    
+
+    if (name) meal.name = name;
+    if (price) meal.price = Number(price);
+    if (description !== undefined) meal.description = description;
+
     if (req.file) {
+      if (meal.cloudinaryId) {
+        await cloudinary.uploader.destroy(meal.cloudinaryId);
+      }
       meal.image = req.file.path;
       meal.cloudinaryId = req.file.filename;
     }
-    
+
     meal.updatedAt = new Date();
     await meal.save();
-    
+
     res.json({ success: true, meal });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// Delete meal
 app.delete("/delete-meal/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    const meal = await Meal.findById(id);
+    const meal = await Meal.findById(req.params.id);
     if (!meal) {
-      return res.status(404).json({ success: false, error: "Meal not found" });
+      return res.json({ success: false, error: "Meal not found" });
     }
-    
+
     if (meal.cloudinaryId) {
-      try {
-        await cloudinary.uploader.destroy(meal.cloudinaryId);
-      } catch (err) {
-        console.error("Error deleting image:", err);
-      }
+      await cloudinary.uploader.destroy(meal.cloudinaryId);
     }
-    
-    await Meal.findByIdAndDelete(id);
+
+    await Meal.deleteOne({ _id: req.params.id });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.get("/user/:email", async (req, res) => {
+// Book order
+app.post("/book", async (req, res) => {
   try {
-    const user = await User.findOne({ email: req.params.email });
-    if (user) {
-      const ratingsObj = {};
-      user.ratings.forEach((value, key) => ratingsObj[key] = value);
-      res.json({
-        success: true,
-        name: user.name,
-        email: user.email,
-        profilePhoto: user.profilePhoto,
-        profileComplete: user.profileComplete,
-        orders: user.orders || [],
-        ratings: ratingsObj
-      });
-    } else {
-      res.json({ success: false, error: "User not found" });
+    const { email, mealName } = req.body;
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.json({ success: false, error: "User not found" });
     }
+
+    if (!user.profileComplete) {
+      return res.json({ success: false, error: "Please complete your profile first" });
+    }
+
+    const meal = await Meal.findOne({ name: mealName });
+    if (!meal) {
+      return res.json({ success: false, error: "Meal not found" });
+    }
+
+    user.orders.push({
+      mealName: meal.name,
+      price: meal.price,
+      date: new Date(),
+      paid: false
+    });
+
+    await user.save();
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.post("/book", async (req, res) => {
+// Checkout
+app.post("/checkout", async (req, res) => {
   try {
-    const { mealName, email, price } = req.body;
+    const { email, orders } = req.body;
     
-    if (!mealName || !email || !price) {
+    if (!email || !orders || orders.length === 0) {
       return res.json({ success: false, error: "Missing required fields" });
     }
     
@@ -531,24 +842,95 @@ app.post("/book", async (req, res) => {
       return res.json({ success: false, error: "Please complete your profile first" });
     }
     
-    const newOrder = {
-      mealName,
-      price,
-      date: new Date(),
-      paid: false,
-      token: null
-    };
-    user.orders.push(newOrder);
+    const total = orders.reduce((sum, order) => sum + order.price, 0);
+    
+    const mealGroups = {};
+    orders.forEach(order => {
+      if (!mealGroups[order.mealName]) {
+        mealGroups[order.mealName] = { quantity: 0, price: order.price };
+      }
+      mealGroups[order.mealName].quantity++;
+    });
+    
+    const meals = Object.entries(mealGroups).map(([name, info]) => ({
+      name,
+      quantity: info.quantity,
+      price: info.price
+    }));
+    
+    const todayDate = new Date();
+    const newOrders = [];
+    
+    orders.forEach(order => {
+      const newOrder = {
+        mealName: order.mealName,
+        price: order.price,
+        date: todayDate,
+        paid: false,
+        day: order.day,
+        batch: order.batch
+      };
+      user.orders.push(newOrder);
+      newOrders.push(newOrder);
+    });
+    
     await user.save();
     
-    res.json({ success: true });
+    const today = new Date().toDateString();
+    let tokenDoc = await Token.findOne({ userEmail: email, date: today });
+    
+    if (tokenDoc) {
+      tokenDoc.totalAmount += total;
+      tokenDoc.meals = meals;
+      
+      const allTodayOrders = user.orders.filter(o => 
+        new Date(o.date).toDateString() === today
+      );
+      tokenDoc.orderIds = allTodayOrders.map(o => o._id);
+      
+      await tokenDoc.save();
+    } else {
+      const token = await generateDailyToken(new Date());
+      
+      const todayOrders = user.orders.filter(o => 
+        new Date(o.date).toDateString() === today
+      );
+      
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 30);
+      
+      tokenDoc = await new Token({
+        token,
+        userEmail: email,
+        userName: user.name,
+        userPhoto: user.profilePhoto,
+        date: today,
+        meals: meals,
+        totalAmount: total,
+        paid: false,
+        verified: false,
+        orderIds: todayOrders.map(o => o._id),
+        expiresAt: expiresAt
+      }).save();
+    }
+    
+    console.log(`✅ Token ${tokenDoc.token} created/updated for ${email} - Amount: ₹${total}`);
+    
+    res.json({
+      success: true,
+      token: tokenDoc.token,
+      meals: meals,
+      totalAmount: total,
+      message: "Orders placed successfully. Please proceed to payment."
+    });
+    
   } catch (err) {
+    console.error("Checkout error:", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
-// Key changes in server.js to fix token expiration issue
 
-// 1. Update the /pay endpoint to set expiration to 24 hours instead of 5 PM same day
+// Pay endpoint
 app.post("/pay", async (req, res) => {
   try {
     const { email } = req.body;
@@ -571,82 +953,144 @@ app.post("/pay", async (req, res) => {
       return res.json({ success: false, error: "No unpaid orders today" });
     }
     
-    const token = await generateDailyToken(now);
+    let tokenDoc = null;
+    let retries = 5;
     
-    const mealGroups = {};
-    todayUnpaid.forEach(order => {
-      if (!mealGroups[order.mealName]) {
-        mealGroups[order.mealName] = { quantity: 0, price: order.price };
+    while (retries > 0 && !tokenDoc) {
+      try {
+        const token = await generateDailyToken(now);
+        
+        const mealGroups = {};
+        todayUnpaid.forEach(order => {
+          if (!mealGroups[order.mealName]) {
+            mealGroups[order.mealName] = { quantity: 0, price: order.price };
+          }
+          mealGroups[order.mealName].quantity++;
+        });
+        
+        const meals = Object.entries(mealGroups).map(([name, data]) => ({
+          name,
+          quantity: data.quantity,
+          price: data.price
+        }));
+        
+        const totalAmount = todayUnpaid.reduce((sum, o) => sum + o.price, 0);
+        const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000));
+        
+        tokenDoc = new Token({
+          token,
+          date: todayStr,
+          userEmail: email,
+          userName: user.name,
+          userPhoto: user.profilePhoto,
+          meals,
+          totalAmount,
+          paid: false,
+          verified: false,
+          expiresAt
+        });
+        
+        await tokenDoc.save();
+        console.log(`✅ Token ${token} generated for ${email}`);
+      } catch (err) {
+        if (err.code === 11000) {
+          retries--;
+          if (retries === 0) {
+            return res.json({ success: false, error: "Failed to generate unique token. Please try again." });
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } else {
+          throw err;
+        }
       }
-      mealGroups[order.mealName].quantity++;
-    });
+    }
     
-    const meals = Object.entries(mealGroups).map(([name, data]) => ({
-      name,
-      quantity: data.quantity,
-      price: data.price
-    }));
-    
-    const totalAmount = todayUnpaid.reduce((sum, o) => sum + o.price, 0);
-    
-    // FIXED: Set expiration to 24 hours from now instead of 5 PM today
-    // This gives users time to complete payment
-    const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000)); // 24 hours from now
-    
-    const tokenDoc = new Token({
-      token,
-      date: todayStr,
+    const qrData = JSON.stringify({
       userEmail: email,
       userName: user.name,
-      userPhoto: user.profilePhoto,
-      meals,
-      totalAmount,
-      paid: false, // FIXED: Set to false initially, will be true after payment verification
-      verified: false,
-      expiresAt
-    });
-    await tokenDoc.save();
-    
-    // Don't mark orders as paid yet - only after payment verification
-    todayUnpaid.forEach(order => {
-      order.token = token; // Assign token but don't mark as paid yet
+      token: tokenDoc.token,
+      meals: tokenDoc.meals,
+      totalAmount: tokenDoc.totalAmount,
+      date: todayStr
     });
     
-    await user.save();
+    const qrCode = await QRCode.toDataURL(qrData);
     
-    res.json({ 
-      success: true, 
-      token,
-      meals,
-      totalAmount,
-      userPhoto: user.profilePhoto,
-      userName: user.name
+    res.json({
+      success: true,
+      qrCode,
+      token: tokenDoc.token,
+      totalAmount: tokenDoc.totalAmount,
+      meals: tokenDoc.meals
     });
   } catch (err) {
+    console.error("Payment error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 2. Update the /token/:token endpoint to not check expiration for unpaid tokens
-app.get("/token/:token", async (req, res) => {
+// Verify token payment
+app.post('/verify-token-payment', async (req, res) => {
   try {
-    const { token } = req.params;
+    const { token, amount } = req.body;
     
-    const tokenDoc = await Token.findOne({ token });
+    const today = new Date().toDateString();
+    const tokenDoc = await Token.findOne({ token: token.toString(), date: today });
+    
     if (!tokenDoc) {
-      return res.json({ success: false, error: "Token not found" });
+      return res.json({ success: false, error: 'Token not found' });
     }
-    
-    const now = new Date();
-    // FIXED: Only check expiration if token is not paid and not verified
-    if (now > tokenDoc.expiresAt && !tokenDoc.paid && !tokenDoc.verified) {
-      return res.json({ success: false, error: "Token expired. Please create a new order." });
+
+    if (tokenDoc.verified) {
+      return res.json({ success: false, error: 'Token already verified' });
     }
+
+    tokenDoc.paid = true;
+    tokenDoc.verified = true;
+    tokenDoc.verifiedAt = new Date();
+    await tokenDoc.save();
+
+    const user = await User.findOne({ email: tokenDoc.userEmail });
+    if (user) {
+      user.orders.forEach(order => {
+        if (new Date(order.date).toDateString() === today && !order.paid) {
+          order.paid = true;
+          order.token = token.toString();
+        }
+      });
+      await user.save();
+    }
+
+    // Send notification
+    await sendPushNotification(tokenDoc.userEmail, {
+      title: '✅ Payment Confirmed',
+      body: `Your payment of ₹${amount} has been verified. Token #${token} is now active.`,
+      type: 'payment_reminder',
+      data: { url: '/dashboard' }
+    });
+
+    res.json({ success: true, message: 'Payment verified successfully' });
+  } catch (err) {
+    console.error('Verify payment error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get token details
+app.get('/token/:token', async (req, res) => {
+  try {
+    const token = req.params.token;
+    const today = new Date().toDateString();
     
+    const tokenDoc = await Token.findOne({ token: token.toString(), date: today });
+    
+    if (!tokenDoc) {
+      return res.json({ success: false, error: 'Token not found for today' });
+    }
+
     res.json({
       success: true,
       token: tokenDoc.token,
-      date: tokenDoc.date,
       userEmail: tokenDoc.userEmail,
       userName: tokenDoc.userName,
       userPhoto: tokenDoc.userPhoto,
@@ -655,562 +1099,108 @@ app.get("/token/:token", async (req, res) => {
       paid: tokenDoc.paid,
       verified: tokenDoc.verified,
       verifiedAt: tokenDoc.verifiedAt,
-      expiresAt: tokenDoc.expiresAt
+      date: tokenDoc.date
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 3. Update payment verification to mark orders as paid and extend expiration
-app.post("/verify-token-payment", async (req, res) => {
+// Verify order
+app.post("/verify", async (req, res) => {
   try {
-    const { token, amount } = req.body;
-    const now = new Date();
+    const { userEmail, date } = req.body;
+    const user = await User.findOne({ email: userEmail });
     
-    if (!token || !amount) {
-      return res.json({ success: false, error: "Token and amount required" });
+    if (!user) {
+      return res.json({ success: false, error: "User not found" });
     }
-    
-    const tokenDoc = await Token.findOne({ token });
-    if (!tokenDoc) {
-      return res.json({ success: false, error: "Invalid token" });
+
+    const todayOrders = user.orders.filter(o => 
+      new Date(o.date).toDateString() === date && o.paid
+    );
+
+    if (todayOrders.length === 0) {
+      return res.json({ success: false, error: "No paid orders for this date" });
     }
-    
-    if (tokenDoc.verified) {
-      return res.json({ 
-        success: false, 
-        error: "Token already verified",
-        verifiedAt: tokenDoc.verifiedAt
-      });
-    }
-    
-    // FIXED: Remove expiration check for payment verification
-    // Allow payment even if token expired, as long as it's not verified
-    
-    // Verify amount matches
-    if (Math.abs(tokenDoc.totalAmount - amount) > 0.01) {
-      return res.json({ success: false, error: "Amount mismatch" });
-    }
-    
-    // Calculate commission (0.01% of total amount)
-    const commissionAmount = (amount * 0.0001).toFixed(2);
-    
-    console.log(`
-      ╔═══════════════════════════════════════════════════════╗
-      💰 PAYMENT TRANSACTION DETAILS
-      ╠═══════════════════════════════════════════════════════╣
-      Token: ${token}
-      Main Payment: ₹${amount} → 9483246283@kotak811
-      Commission (0.01%): ₹${commissionAmount} → pgayushrai@okicici
-      User: ${tokenDoc.userEmail}
-      Date: ${new Date().toLocaleString('en-IN')}
-      ╚═══════════════════════════════════════════════════════╝
-    `);
-    
-    // FIXED: Update token to paid and verified, extend expiration to 5 PM today
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const newExpiresAt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 17, 0, 0);
-    
-    tokenDoc.paid = true;
-    tokenDoc.verified = true;
-    tokenDoc.verifiedAt = now;
-    tokenDoc.expiresAt = newExpiresAt; // Now expires at 5 PM today
-    tokenDoc.paymentDetails = {
-      mainAmount: amount,
-      mainUPI: '9483246283@kotak811',
-      commissionAmount: parseFloat(commissionAmount),
-      commissionUPI: 'pgayushrai@okicici',
-      paymentTime: now
-    };
-    await tokenDoc.save();
-    
-    // FIXED: Now mark user's orders as paid
-    const user = await User.findOne({ email: tokenDoc.userEmail });
-    if (user) {
-      const todayStr = tokenDoc.date;
-      user.orders.forEach(order => {
-        if (order.token === token && new Date(order.date).toDateString() === todayStr) {
-          order.paid = true;
-        }
-      });
-      
-      user.verifiedToday = {
-        date: tokenDoc.date,
-        verified: true,
-        verifiedAt: now,
-        meals: tokenDoc.meals
-      };
-      await user.save();
-    }
-    
-    res.json({ 
-      success: true, 
-      message: "Payment verified and token activated",
-      tokenDoc,
-      paymentDetails: {
-        mainAmount: amount,
-        commissionAmount: parseFloat(commissionAmount)
+
+    const mealGroups = {};
+    todayOrders.forEach(order => {
+      if (!mealGroups[order.mealName]) {
+        mealGroups[order.mealName] = { quantity: 0, totalPrice: 0 };
       }
+      mealGroups[order.mealName].quantity++;
+      mealGroups[order.mealName].totalPrice += order.price;
     });
-  } catch (err) {
-    console.error("Payment verification error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
-
-// Get payment details for a token
-app.get("/token/:token/payment", async (req, res) => {
-  try {
-    const { token } = req.params;
-    
-    const tokenDoc = await Token.findOne({ token });
-    if (!tokenDoc) {
-      return res.json({ success: false, error: "Token not found" });
-    }
-    
-    const commissionAmount = (tokenDoc.totalAmount * 0.0001).toFixed(2);
-    
-    res.json({
-      success: true,
-      token: tokenDoc.token,
-      totalAmount: tokenDoc.totalAmount,
-      mainUPI: '9483246283@kotak811',
-      commissionAmount: parseFloat(commissionAmount),
-      commissionUPI: 'pgayushrai@okicici',
-      verified: tokenDoc.verified,
-      paymentDetails: tokenDoc.paymentDetails || null
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Admin endpoint to view all payment transactions
-app.get("/admin/payments", async (req, res) => {
-  try {
-    const tokens = await Token.find({ verified: true })
-      .sort({ verifiedAt: -1 })
-      .limit(100);
-    
-    const paymentSummary = tokens.map(t => ({
-      token: t.token,
-      userEmail: t.userEmail,
-      userName: t.userName,
-      mainAmount: t.totalAmount,
-      commissionAmount: (t.totalAmount * 0.0001).toFixed(2),
-      verifiedAt: t.verifiedAt,
-      paymentDetails: t.paymentDetails
-    }));
-    
-    const totalMain = tokens.reduce((sum, t) => sum + t.totalAmount, 0);
-    const totalCommission = (totalMain * 0.0001).toFixed(2);
-    
-    res.json({
-      success: true,
-      transactions: paymentSummary,
-      summary: {
-        totalTransactions: tokens.length,
-        totalMainPayments: totalMain,
-        totalCommission: parseFloat(totalCommission),
-        mainUPI: '9483246283@kotak811',
-        commissionUPI: 'pgayushrai@okicici'
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Add this to your server.js file
-
-// Simulated UPI Payment Webhook (for testing)
-// In production, this would be replaced by actual payment gateway webhook
-app.post("/simulate-payment", async (req, res) => {
-  try {
-    const { token, upiRef } = req.body;
-    const now = new Date();
-    
-    if (!token) {
-      return res.json({ success: false, error: "Token required" });
-    }
-    
-    const tokenDoc = await Token.findOne({ token });
-    if (!tokenDoc) {
-      return res.json({ success: false, error: "Invalid token" });
-    }
-    
-    if (tokenDoc.verified) {
-      return res.json({ 
-        success: false, 
-        error: "Token already verified"
-      });
-    }
-    
-    // Simulate payment processing
-    const amount = tokenDoc.totalAmount;
-    const commissionAmount = (amount * 0.0001).toFixed(2);
-    
-    console.log(`
-      ╔═══════════════════════════════════════════════════════╗
-      💰 PAYMENT RECEIVED (Simulated)
-      ╠═══════════════════════════════════════════════════════╣
-      Token: ${token}
-      Amount: ₹${amount}
-      UPI Ref: ${upiRef || 'AUTO-' + Date.now()}
-      Main UPI: 9483246283@kotak811
-      Commission: ₹${commissionAmount} → pgayushrai@okicici
-      Time: ${new Date().toLocaleString('en-IN')}
-      ╚═══════════════════════════════════════════════════════╝
-    `);
-    
-    // Update token
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const newExpiresAt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 17, 0, 0);
-    
-    tokenDoc.paid = true;
-    tokenDoc.verified = true;
-    tokenDoc.verifiedAt = now;
-    tokenDoc.expiresAt = newExpiresAt;
-    tokenDoc.paymentDetails = {
-      mainAmount: amount,
-      mainUPI: '9483246283@kotak811',
-      commissionAmount: parseFloat(commissionAmount),
-      commissionUPI: 'pgayushrai@okicici',
-      transactionId: 'TXN-' + Date.now(),
-      upiRef: upiRef || 'AUTO-' + Date.now(),
-      paymentTime: now
-    };
-    await tokenDoc.save();
-    
-    // Mark user orders as paid
-    const user = await User.findOne({ email: tokenDoc.userEmail });
-    if (user) {
-      const todayStr = tokenDoc.date;
-      user.orders.forEach(order => {
-        if (order.token === token && new Date(order.date).toDateString() === todayStr) {
-          order.paid = true;
-        }
-      });
-      
-      user.verifiedToday = {
-        date: tokenDoc.date,
-        verified: true,
-        verifiedAt: now,
-        meals: tokenDoc.meals
-      };
-      await user.save();
-    }
-    
-    res.json({ 
-      success: true, 
-      message: "Payment processed successfully",
+    user.verifiedToday = {
+      date,
       verified: true,
-      verifiedAt: now
-    });
-  } catch (err) {
-    console.error("Payment simulation error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Real UPI Payment Gateway Webhook (for production use)
-// Replace this with your actual payment gateway's webhook endpoint
-app.post("/upi-webhook", async (req, res) => {
-  try {
-    // Verify webhook signature (implement based on your payment gateway)
-    // const signature = req.headers['x-webhook-signature'];
-    // if (!verifySignature(signature, req.body)) {
-    //   return res.status(401).json({ error: "Invalid signature" });
-    // }
-    
-    const { 
-      status, 
-      amount, 
-      token, 
-      upiTransactionId, 
-      payerVPA 
-    } = req.body;
-    
-    if (status !== 'SUCCESS') {
-      return res.json({ received: true });
-    }
-    
-    const tokenDoc = await Token.findOne({ token });
-    if (!tokenDoc || tokenDoc.verified) {
-      return res.json({ received: true });
-    }
-    
-    // Verify amount matches
-    if (Math.abs(tokenDoc.totalAmount - amount) > 0.01) {
-      console.error(`Amount mismatch for token ${token}: expected ${tokenDoc.totalAmount}, got ${amount}`);
-      return res.json({ received: true });
-    }
-    
-    const now = new Date();
-    const commissionAmount = (amount * 0.0001).toFixed(2);
-    
-    console.log(`
-      ╔═══════════════════════════════════════════════════════╗
-      💰 REAL PAYMENT RECEIVED
-      ╠═══════════════════════════════════════════════════════╣
-      Token: ${token}
-      Amount: ₹${amount}
-      UPI Transaction ID: ${upiTransactionId}
-      Payer VPA: ${payerVPA}
-      Main UPI: 9483246283@kotak811
-      Commission: ₹${commissionAmount} → pgayushrai@okicici
-      Time: ${new Date().toLocaleString('en-IN')}
-      ╚═══════════════════════════════════════════════════════╝
-    `);
-    
-    // Update token
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const newExpiresAt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 17, 0, 0);
-    
-    tokenDoc.paid = true;
-    tokenDoc.verified = true;
-    tokenDoc.verifiedAt = now;
-    tokenDoc.expiresAt = newExpiresAt;
-    tokenDoc.paymentDetails = {
-      mainAmount: amount,
-      mainUPI: '9483246283@kotak811',
-      commissionAmount: parseFloat(commissionAmount),
-      commissionUPI: 'pgayushrai@okicici',
-      transactionId: upiTransactionId,
-      upiRef: payerVPA,
-      paymentTime: now
+      verifiedAt: new Date(),
+      meals: Object.entries(mealGroups).map(([name, data]) => ({
+        name,
+        quantity: data.quantity,
+        totalPrice: data.totalPrice
+      }))
     };
-    await tokenDoc.save();
-    
-    // Mark user orders as paid
-    const user = await User.findOne({ email: tokenDoc.userEmail });
-    if (user) {
-      const todayStr = tokenDoc.date;
-      user.orders.forEach(order => {
-        if (order.token === token && new Date(order.date).toDateString() === todayStr) {
-          order.paid = true;
-        }
-      });
-      
-      user.verifiedToday = {
-        date: tokenDoc.date,
-        verified: true,
-        verifiedAt: now,
-        meals: tokenDoc.meals
-      };
-      await user.save();
-    }
-    
-    res.json({ received: true, verified: true });
-  } catch (err) {
-    console.error("Webhook error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
-// Testing endpoint - Remove in production
-app.get("/test-payment/:token", async (req, res) => {
-  const { token } = req.params;
-  
-  // Simulate payment after 3 seconds
-  setTimeout(async () => {
-    await fetch(`http://localhost:${PORT}/simulate-payment`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        token, 
-        upiRef: 'TEST-' + Date.now() 
-      })
-    });
-  }, 3000);
-  
-  res.send(`
-    <html>
-      <body style="font-family: Arial; padding: 40px; text-align: center;">
-        <h1>Payment Simulation Started</h1>
-        <p>Token ${token} will be verified in 3 seconds...</p>
-        <p>Go back to dashboard4.html to see auto-detection in action!</p>
-      </body>
-    </html>
-  `);
-});
-// Webhook endpoint for actual UPI payment verification (for future integration)
-app.post("/webhook/payment-confirmation", async (req, res) => {
-  try {
-    const { transactionId, token, amount, upiRef, status } = req.body;
-    
-    if (status === 'SUCCESS') {
-      const tokenDoc = await Token.findOne({ token });
-      if (tokenDoc && !tokenDoc.verified) {
-        tokenDoc.verified = true;
-        tokenDoc.verifiedAt = new Date();
-        tokenDoc.paymentDetails = {
-          transactionId,
-          upiRef,
-          mainAmount: amount,
-          mainUPI: '9483246283@kotak811',
-          commissionAmount: (amount * 0.0001).toFixed(2),
-          commissionUPI: 'pgayushrai@okicici',
-          paymentTime: new Date()
-        };
-        await tokenDoc.save();
-        
-        console.log(`✅ Payment confirmed for token ${token} - Amount: ₹${amount}`);
-      }
+    await user.save();
+
+    const tokenDoc = await Token.findOne({ userEmail, date });
+    if (tokenDoc) {
+      tokenDoc.verified = true;
+      tokenDoc.verifiedAt = new Date();
+      await tokenDoc.save();
     }
-    
+
+    // Send notification
+    await sendPushNotification(userEmail, {
+      title: '🎉 Order Verified!',
+      body: 'Your meal order has been verified. Enjoy your food!',
+      type: 'order_update',
+      data: { url: '/dashboard' }
+    });
+
     res.json({ success: true });
   } catch (err) {
-    console.error("Webhook error:", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.post("/verify-token", async (req, res) => {
-  try {
-    const { token } = req.body;
-    const now = new Date();
-    
-    if (!token) {
-      return res.json({ success: false, error: "Token required" });
-    }
-    
-    const tokenDoc = await Token.findOne({ token });
-    if (!tokenDoc) {
-      return res.json({ success: false, error: "Invalid token" });
-    }
-    
-    if (tokenDoc.verified) {
-      return res.json({ 
-        success: false, 
-        error: "Token already verified",
-        verifiedAt: tokenDoc.verifiedAt
-      });
-    }
-    
-    if (now > tokenDoc.expiresAt) {
-      return res.json({ success: false, error: "Token expired" });
-    }
-    
-    tokenDoc.verified = true;
-    tokenDoc.verifiedAt = now;
-    await tokenDoc.save();
-    
-    const user = await User.findOne({ email: tokenDoc.userEmail });
-    if (user) {
-      user.verifiedToday = {
-        date: tokenDoc.date,
-        verified: true,
-        verifiedAt: now,
-        meals: tokenDoc.meals
-      };
-      await user.save();
-    }
-    
-    res.json({ success: true, tokenDoc });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
+// Check if verified
 app.post("/check-verified", async (req, res) => {
   try {
     const { userEmail, date } = req.body;
     const user = await User.findOne({ email: userEmail });
-    if (!user) return res.json({ verified: false });
     
-    const verifiedToday = user.verifiedToday;
-    const isVerified = verifiedToday && verifiedToday.date === date && verifiedToday.verified;
-    res.json({ verified: isVerified });
+    if (!user) {
+      return res.json({ verified: false });
+    }
+
+    const verified = user.verifiedToday && 
+                     user.verifiedToday.date === date && 
+                     user.verifiedToday.verified;
+
+    res.json({ verified });
   } catch (err) {
-    res.json({ verified: false });
+    res.status(500).json({ verified: false, error: err.message });
   }
 });
 
-app.post("/verify", async (req, res) => {
+// Get user orders
+app.get("/orders/:email", async (req, res) => {
   try {
-    const { userEmail, date } = req.body;
-    const now = new Date();
-    
-    if (!userEmail || !date) {
-      return res.json({ success: false, error: "Missing data" });
-    }
-    
-    const user = await User.findOne({ email: userEmail });
-    if (!user) return res.json({ success: false, error: "User not found" });
-    
-    const todayPaid = user.orders.filter(o => new Date(o.date).toDateString() === date && o.paid);
-    if (todayPaid.length === 0) {
-      return res.json({ success: false, error: "No paid orders" });
-    }
-    
-    const grouped = todayPaid.reduce((acc, meal) => {
-      const name = meal.mealName;
-      if (!acc[name]) acc[name] = { quantity: 0, totalPrice: 0 };
-      acc[name].quantity++;
-      acc[name].totalPrice += meal.price;
-      return acc;
-    }, {});
-    
-    user.verifiedToday = {
-      date,
-      verified: true,
-      verifiedAt: now,
-      meals: Object.entries(grouped).map(([name, info]) => ({
-        name,
-        quantity: info.quantity,
-        totalPrice: info.totalPrice
-      }))
-    };
-    
-    await user.save();
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post("/cancel", async (req, res) => {
-  try {
-    const { orderId, email } = req.body;
-    
-    if (!orderId || !email) {
-      return res.json({ success: false, error: "Missing data" });
-    }
-    
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: req.params.email });
     if (!user) {
       return res.json({ success: false, error: "User not found" });
     }
-    
-    const orderIndex = user.orders.findIndex(o => o._id.toString() === orderId);
-    if (orderIndex === -1) {
-      return res.json({ success: false, error: "Order not found" });
-    }
-    
-    const order = user.orders[orderIndex];
-    const now = new Date();
-    const orderDateStr = order.date.toDateString();
-    const todayStr = now.toDateString();
-    
-    if (orderDateStr !== todayStr) {
-      return res.json({ success: false, error: "Cannot cancel previous orders" });
-    }
-    
-    if (order.paid) {
-      return res.json({ success: false, error: "Cannot cancel paid orders" });
-    }
-    
-    user.orders.splice(orderIndex, 1);
-    await user.save();
-    res.json({ success: true });
+    res.json({ success: true, orders: user.orders || [] });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// Rate meal
 app.post("/rate", async (req, res) => {
   try {
     const { mealName, rating, email } = req.body;
@@ -1241,6 +1231,7 @@ app.post("/rate", async (req, res) => {
   }
 });
 
+// Get meal details
 app.get("/meal/:name", async (req, res) => {
   try {
     const meal = await Meal.findOne({ name: req.params.name });
@@ -1263,6 +1254,7 @@ app.get("/meal/:name", async (req, res) => {
   }
 });
 
+// Producer stats
 app.get("/producer/stats", async (req, res) => {
   try {
     const { period = 'day' } = req.query;
@@ -1316,31 +1308,67 @@ app.get("/producer/stats", async (req, res) => {
   }
 });
 
-// ---------- Serve dashboards (routes) ----------
+// SSE for ratings
+app.get("/sse-ratings", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  sseClients.push(res);
+  console.log("Client connected to rating SSE");
+
+  req.on("close", () => {
+    sseClients = sseClients.filter(client => client !== res);
+    console.log("Client disconnected from rating SSE");
+  });
+});
+
+function broadcastRatingUpdate(mealName, avgRating, totalRatings) {
+  const data = JSON.stringify({ mealName, avgRating, totalRatings });
+  sseClients.forEach(client => {
+    try {
+      client.write(`data: ${data}\n\n`);
+    } catch (err) {
+      console.error("Error sending SSE:", err);
+    }
+  });
+}
+
+// Serve HTML files
 app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "index.html"));
+  res.sendFile(path.join(__dirname, "index.html"));
 });
+
 app.get("/dashboard", (req, res) => {
-    res.sendFile(path.join(__dirname, "dashboard.html"));
+  res.sendFile(path.join(__dirname, "dashboard.html"));
 });
+
 app.get("/dashboard1", (req, res) => {
-    res.sendFile(path.join(__dirname, "dashboard1.html"));
+  res.sendFile(path.join(__dirname, "dashboard1.html"));
 });
+
 app.get("/dashboard3", (req, res) => {
-    res.sendFile(path.join(__dirname, "dashboard3.html"));
+  res.sendFile(path.join(__dirname, "dashboard3.html"));
 });
 
-// ---------- Error handler ----------
+app.get("/dashboard4", (req, res) => {
+  res.sendFile(path.join(__dirname, "dashboard4.html"));
+});
+
+// Error handler
 app.use((err, req, res, next) => {
-    console.error("Server error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
+  console.error("Server error:", err);
+  res.status(500).json({ success: false, error: "Server error" });
 });
 
-// ---------- Start server ----------
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log("📡 Make sure MongoDB Atlas connection is active");
-    console.log("☁️ Cloudinary configured for image uploads");
-    console.log("🔐 Google OAuth configured");
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("📡 MongoDB connection active");
+  console.log("☁️ Cloudinary configured");
+  console.log("🔐 Google OAuth configured");
+  console.log("🔔 Push notifications enabled");
+  console.log("⏰ Daily reminder scheduled for 10 AM (Mon-Sat)");
 });

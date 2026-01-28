@@ -32,37 +32,80 @@
     .modal-overlay {
       backdrop-filter: blur(8px);
     }
+    
+    /* Notification Bell Animation */
+    @keyframes bellRing {
+      0%, 100% { transform: rotate(0deg); }
+      10%, 30% { transform: rotate(-10deg); }
+      20%, 40% { transform: rotate(10deg); }
+      50% { transform: rotate(0deg); }
+    }
+    .bell-ringing {
+      animation: bellRing 0.5s ease-in-out;
+    }
+    .notification-dot {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 12px;
+      height: 12px;
+      background: #ef4444;
+      border-radius: 50%;
+      border: 2px solid #1e293b;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
+    }
+    .notification-panel {
+      max-height: 400px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 text-white p-6 overflow-x-hidden">
+  <!-- Notification Sound -->
+  <audio id="notificationSound" preload="auto">
+    <source src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" type="audio/mpeg">
+  </audio>
+
   <div class="max-w-6xl mx-auto px-4 md:px-6">
     <div class="flex items-center justify-between mb-8">
       <div>
         <h1 class="text-4xl font-bold gradient-text">Producer Dashboard</h1>
         <p id="producer-welcome" class="text-base text-slate-300 mt-2 font-medium"></p>
       </div>
-      <!-- Add this updated header section to your dashboard1.html -->
-<div class="flex items-center justify-between mb-8">
-  <div>
-    <h1 class="text-4xl font-bold gradient-text">Producer Dashboard</h1>
-    <p id="producer-welcome" class="text-base text-slate-300 mt-2 font-medium"></p>
-  </div>
-  <div class="flex items-center gap-4">
-    <button id="scanBtn" class="text-2xl p-4 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all duration-300 hover:scale-110 shadow-lg" title="Scan QR">
-      <i class="fas fa-qrcode"></i>
-    </button>
-    <button onclick="window.location.href='dashboard4.html'" class="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
-      <i class="fas fa-ticket-alt mr-2"></i>Verify Token
-    </button>
-    <button onclick="window.location.href='dashboard3.html'" class="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
-      <i class="fas fa-cog mr-2"></i>Manage Item
-    </button>
-    <button id="logout" class="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">Logout</button>
-  </div>
-</div>
+      
       <div class="flex items-center gap-4">
+        <!-- Notification Bell -->
+        <div class="relative">
+          <button id="notificationBell" class="text-2xl p-4 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all duration-300 hover:scale-110 shadow-lg relative" title="Notifications">
+            <i class="fas fa-bell"></i>
+            <span id="notificationDot" class="notification-dot hidden"></span>
+          </button>
+          
+          <!-- Notification Dropdown -->
+          <div id="notificationPanel" class="hidden absolute right-0 mt-2 w-96 bg-slate-800/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-700/50 z-50">
+            <div class="p-6">
+              <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-white">Notifications</h3>
+                <button id="sendReminderBtn" class="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg text-sm transition-all duration-300">
+                  <i class="fas fa-paper-plane mr-2"></i>Send Reminders
+                </button>
+              </div>
+              <div id="notificationList" class="notification-panel space-y-3">
+                <p class="text-slate-400 text-center py-4">No new notifications</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <button id="scanBtn" class="text-2xl p-4 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all duration-300 hover:scale-110 shadow-lg" title="Scan QR">
           <i class="fas fa-qrcode"></i>
+        </button>
+        <button onclick="window.location.href='dashboard4.html'" class="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
+          <i class="fas fa-ticket-alt mr-2"></i>Verify Token
         </button>
         <button onclick="window.location.href='dashboard3.html'" class="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
           <i class="fas fa-cog mr-2"></i>Manage Item

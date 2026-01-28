@@ -1,0 +1,12 @@
+VAPID Keys Generated: 2026-01-28T13:54:25.256Z
+
+Public Key:
+BPN1TfUOyPUNLfnIu2nWTIjlQuAbHMp7et-zMlBhEYgYrXeqf7piiJD1um343wahAu2UZXptdnYgKrA6jjs8xw0
+
+Private Key:
+3bPYPaasTgVDSGJMc8wfSkseKG8TOkeAL7HtasubpJc
+
+⚠️  WARNING: Keep this file secure and never commit to Git!
+Add these keys to:
+1. Your .env file (local development)
+2. Render.com environment variables (production)

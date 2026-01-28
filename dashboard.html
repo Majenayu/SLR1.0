@@ -39,6 +39,60 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+    #cameraContainer {
+      width: 200px;
+      height: 200px;
+      margin: 0 auto 1.5rem;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 4px solid #6366f1;
+      display: none;
+      position: relative;
+    }
+    #cameraStream {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .initials-avatar {
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #4f46e5;
+      color: white;
+      font-weight: bold;
+      font-size: 1.25rem;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.1);
+    }
+    .cart-badge {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      background: #ef4444;
+      color: white;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: bold;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+    .day-checkbox {
+      accent-color: #6366f1;
+      width: 20px;
+      height: 20px;
+    }
+    .batch-radio {
+      accent-color: #10b981;
+    }
   </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-900 text-white">
@@ -46,24 +100,37 @@
   <!-- Profile Setup Modal -->
   <div id="profileSetupModal" class="fixed inset-0 bg-black/80 modal-overlay flex items-center justify-center z-50 hidden">
     <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 max-w-md w-full mx-4 border border-slate-700/50">
-      <h3 class="text-3xl font-bold gradient-text mb-6 text-center">
+      <h3 class="text-3xl font-bold gradient-text mb-2 text-center">
         <i class="fas fa-user-circle"></i> Complete Your Profile
       </h3>
-      <p class="text-slate-300 mb-6 text-center">Please add your photo and name to continue</p>
+      <p class="text-amber-400 text-xs font-bold mb-6 text-center">
+        <i class="fas fa-exclamation-triangle"></i> WARNING: Username cannot be changed once saved!
+      </p>
       
       <div class="mb-6 text-center">
         <div class="inline-block relative">
           <img id="previewPhoto" src="https://via.placeholder.com/120/667eea/ffffff?text=Photo" class="profile-img mb-4">
-          <label for="photoInput" class="absolute bottom-2 right-2 bg-indigo-600 hover:bg-indigo-700 p-2 rounded-full cursor-pointer">
-            <i class="fas fa-camera"></i>
-          </label>
+          <div id="cameraContainer">
+            <video id="cameraStream" autoplay playsinline></video>
+          </div>
+          <div class="flex justify-center gap-3 mt-4">
+            <label for="photoInput" class="bg-indigo-600 hover:bg-indigo-700 p-3 rounded-full cursor-pointer shadow-lg transition transform hover:scale-110" title="Upload Photo">
+              <i class="fas fa-upload"></i>
+            </label>
+            <button id="startCamera" class="bg-indigo-600 hover:bg-indigo-700 p-3 rounded-full shadow-lg transition transform hover:scale-110" title="Start Camera">
+              <i class="fas fa-camera"></i>
+            </button>
+            <button id="capturePhoto" class="bg-emerald-600 hover:bg-emerald-700 p-3 rounded-full shadow-lg transition hidden transform hover:scale-110" title="Capture Photo">
+              <i class="fas fa-check"></i>
+            </button>
+          </div>
         </div>
         <input type="file" id="photoInput" accept="image/*" class="hidden">
       </div>
       
       <div class="mb-6">
         <label class="block text-sm font-semibold text-slate-300 mb-2">
-          <i class="fas fa-user mr-2"></i> Full Name
+          <i class="fas fa-user mr-2"></i> Full Name *
         </label>
         <input 
           type="text" 
@@ -76,6 +143,197 @@
       <button id="saveProfileBtn" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 px-8 py-3 rounded-xl font-semibold transition-all duration-300 shadow-lg">
         <i class="fas fa-check mr-2"></i> Save & Continue
       </button>
+      <button id="cancelSetup" class="w-full mt-4 text-slate-400 hover:text-white transition text-sm hidden">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Cart Modal -->
+  <div id="cartModal" class="fixed inset-0 bg-black/80 modal-overlay flex items-center justify-center z-50 hidden overflow-y-auto">
+    <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 max-w-5xl w-full mx-4 my-4 border border-slate-700/50 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-3xl font-bold gradient-text">
+          <i class="fas fa-shopping-cart"></i> Your Cart
+        </h3>
+        <button id="closeCart" class="text-4xl text-slate-400 hover:text-white transition">×</button>
+      </div>
+
+      <div id="cartContent" class="space-y-6">
+        <!-- Cart items will be inserted here -->
+      </div>
+
+      <div class="mt-8 pt-6 border-t border-slate-700/50">
+        <div class="flex justify-between items-center text-2xl font-bold mb-6">
+          <span>Total Amount:</span>
+          <span id="cartTotal" class="text-emerald-400">₹0</span>
+        </div>
+        <button id="proceedToCheckout" class="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 shadow-lg">
+          <i class="fas fa-credit-card mr-2"></i> Proceed to Checkout
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add to Cart Modal (Weekly Selection) -->
+  <div id="addToCartModal" class="fixed inset-0 bg-black/80 modal-overlay flex items-center justify-center z-50 hidden overflow-y-auto">
+    <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 max-w-3xl w-full mx-4 my-4 border border-slate-700/50 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-3xl font-bold gradient-text">
+          <i class="fas fa-calendar-alt"></i> Plan Your Meals
+        </h3>
+        <button id="closeAddToCart" class="text-4xl text-slate-400 hover:text-white transition">×</button>
+      </div>
+
+      <div id="selectedMealInfo" class="mb-6 bg-slate-700/50 p-4 rounded-xl">
+        <!-- Meal info will be inserted here -->
+      </div>
+
+      <div class="mb-6">
+        <h4 class="text-xl font-bold mb-4 text-indigo-200">
+          <i class="fas fa-calendar-week mr-2"></i> Select Days
+        </h4>
+        <div class="grid grid-cols-1 gap-4">
+          <div class="day-row bg-slate-700/30 p-4 rounded-xl">
+            <div class="flex items-center justify-between mb-3">
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" class="day-checkbox" data-day="monday">
+                <span class="font-semibold text-lg">Monday</span>
+              </label>
+            </div>
+            <div class="ml-8 batch-selection hidden">
+              <span class="text-sm text-slate-400 mb-2 block">Select Batch:</span>
+              <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-monday" value="1" class="batch-radio">
+                  <span>Batch 1</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-monday" value="2" class="batch-radio">
+                  <span>Batch 2</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="day-row bg-slate-700/30 p-4 rounded-xl">
+            <div class="flex items-center justify-between mb-3">
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" class="day-checkbox" data-day="tuesday">
+                <span class="font-semibold text-lg">Tuesday</span>
+              </label>
+            </div>
+            <div class="ml-8 batch-selection hidden">
+              <span class="text-sm text-slate-400 mb-2 block">Select Batch:</span>
+              <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-tuesday" value="1" class="batch-radio">
+                  <span>Batch 1</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-tuesday" value="2" class="batch-radio">
+                  <span>Batch 2</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="day-row bg-slate-700/30 p-4 rounded-xl">
+            <div class="flex items-center justify-between mb-3">
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" class="day-checkbox" data-day="wednesday">
+                <span class="font-semibold text-lg">Wednesday</span>
+              </label>
+            </div>
+            <div class="ml-8 batch-selection hidden">
+              <span class="text-sm text-slate-400 mb-2 block">Select Batch:</span>
+              <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-wednesday" value="1" class="batch-radio">
+                  <span>Batch 1</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-wednesday" value="2" class="batch-radio">
+                  <span>Batch 2</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="day-row bg-slate-700/30 p-4 rounded-xl">
+            <div class="flex items-center justify-between mb-3">
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" class="day-checkbox" data-day="thursday">
+                <span class="font-semibold text-lg">Thursday</span>
+              </label>
+            </div>
+            <div class="ml-8 batch-selection hidden">
+              <span class="text-sm text-slate-400 mb-2 block">Select Batch:</span>
+              <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-thursday" value="1" class="batch-radio">
+                  <span>Batch 1</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-thursday" value="2" class="batch-radio">
+                  <span>Batch 2</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="day-row bg-slate-700/30 p-4 rounded-xl">
+            <div class="flex items-center justify-between mb-3">
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" class="day-checkbox" data-day="friday">
+                <span class="font-semibold text-lg">Friday</span>
+              </label>
+            </div>
+            <div class="ml-8 batch-selection hidden">
+              <span class="text-sm text-slate-400 mb-2 block">Select Batch:</span>
+              <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-friday" value="1" class="batch-radio">
+                  <span>Batch 1</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-friday" value="2" class="batch-radio">
+                  <span>Batch 2</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="day-row bg-slate-700/30 p-4 rounded-xl">
+            <div class="flex items-center justify-between mb-3">
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" class="day-checkbox" data-day="saturday">
+                <span class="font-semibold text-lg">Saturday</span>
+              </label>
+            </div>
+            <div class="ml-8 batch-selection hidden">
+              <span class="text-sm text-slate-400 mb-2 block">Select Batch:</span>
+              <div class="flex gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-saturday" value="1" class="batch-radio">
+                  <span>Batch 1</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="batch-saturday" value="2" class="batch-radio">
+                  <span>Batch 2</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-4">
+        <button id="addSelectedToCart" class="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 px-8 py-3 rounded-xl font-semibold transition-all duration-300 shadow-lg">
+          <i class="fas fa-plus mr-2"></i> Add to Cart
+        </button>
+        <button id="cancelAddToCart" class="flex-1 bg-slate-600 hover:bg-slate-700 px-8 py-3 rounded-xl font-semibold transition-all duration-300 shadow-lg">
+          <i class="fas fa-times mr-2"></i> Cancel
+        </button>
+      </div>
     </div>
   </div>
 
@@ -114,28 +372,57 @@
     </div>
   </div>
 
-  <!-- Profile Modal -->
-  <div id="profileModal" class="fixed inset-0 bg-black/80 modal-overlay flex items-center justify-center z-50 hidden overflow-y-auto">
-    <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 max-w-4xl w-full mx-4 my-8 border border-slate-700/50">
-      <div class="flex justify-between items-center mb-6">
-        <h3 class="text-3xl font-bold gradient-text">
-          <i class="fas fa-user-circle"></i> Your Profile
-        </h3>
-        <button id="closeProfile" class="text-3xl hover:text-red-400 transition">×</button>
+  <!-- Enhanced Profile Modal -->
+  <div id="profileModal" class="fixed inset-0 bg-black/90 modal-overlay flex items-start justify-center z-50 hidden overflow-y-auto pt-6 pb-6">
+    <div class="bg-slate-900/95 backdrop-blur-xl rounded-3xl p-6 md:p-10 max-w-5xl w-full mx-4 my-4 border border-slate-700/50 shadow-2xl">
+      
+      <!-- Profile Header -->
+      <div class="mb-12 border-b border-slate-700/50 pb-10">
+        <div class="flex justify-between items-center mb-8">
+          <h3 class="text-3xl font-bold gradient-text">My Profile</h3>
+          <button id="closeProfile" class="text-4xl text-slate-400 hover:text-white transition">×</button>
+        </div>
+        <div class="flex flex-col md:flex-row items-center gap-8">
+          <div class="relative group">
+            <img id="editProfilePreview" src="" class="profile-img">
+            <div class="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+              <i class="fas fa-camera text-2xl"></i>
+            </div>
+          </div>
+          <div class="flex-1 w-full space-y-4 text-center md:text-left">
+            <div>
+              <p class="text-sm text-slate-400 mb-1">Current Name</p>
+              <p id="currentProfileName" class="text-xl font-bold"></p>
+            </div>
+            <button id="triggerEdit" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg text-sm font-semibold transition shadow-lg transform hover:scale-105">
+              <i class="fas fa-camera mr-2"></i> Update Photo
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <div class="bg-gradient-to-br from-red-500/80 to-red-600/80 p-6 rounded-xl text-center">
-          <h4 class="text-white/90 mb-2">Unpaid Orders</h4>
-          <p id="unpaidCount" class="text-4xl font-bold">0</p>
+      <!-- Analytics Header -->
+      <div class="mb-10">
+        <h3 class="text-4xl font-bold gradient-text">My Mess Analytics</h3>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        <div class="bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl text-center">
+          <h4 class="text-slate-400 text-sm uppercase mb-2">Pending Items</h4>
+          <p id="unpaidCount" class="text-3xl font-bold text-red-400">0</p>
         </div>
-        <div class="bg-gradient-to-br from-blue-500/80 to-blue-600/80 p-6 rounded-xl text-center">
-          <h4 class="text-white/90 mb-2">Your Score</h4>
-          <p id="score" class="text-4xl font-bold">0</p>
+        <div class="bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl text-center">
+          <h4 class="text-slate-400 text-sm uppercase mb-2">My Score</h4>
+          <p id="score" class="text-3xl font-bold text-blue-400">0</p>
         </div>
-        <div class="bg-gradient-to-br from-purple-500/80 to-purple-600/80 p-6 rounded-xl text-center">
-          <h4 class="text-white/90 mb-2">Period</h4>
-          <select id="periodSelect" class="bg-slate-700/80 text-white px-4 py-2 rounded-xl border border-slate-600/50 w-full">
+        <div class="bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl text-center">
+          <h4 class="text-slate-400 text-sm uppercase mb-2">Total Spent</h4>
+          <p id="totalSpent" class="text-3xl font-bold text-emerald-400">₹0</p>
+        </div>
+        <div class="bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl text-center">
+          <h4 class="text-slate-400 text-sm uppercase mb-2">Period</h4>
+          <select id="periodSelect" class="bg-slate-700 text-white px-3 py-1 rounded-lg border border-slate-600 w-full focus:outline-none">
             <option value="day">Today</option>
             <option value="week">This Week</option>
             <option value="month">This Month</option>
@@ -144,24 +431,31 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div>
-          <h4 class="text-xl font-bold mb-4 text-indigo-200">Spending Over Time</h4>
-          <div class="bg-slate-700/40 p-4 rounded-xl" style="height: 300px;">
-            <canvas id="spendingChart"></canvas>
-          </div>
-          <p id="totalSpent" class="text-center mt-4 text-2xl font-bold text-emerald-400">₹0</p>
-        </div>
-        <div>
-          <h4 class="text-xl font-bold mb-4 text-indigo-200">Food Preferences</h4>
-          <div class="bg-slate-700/40 p-4 rounded-xl" style="height: 300px;">
-            <canvas id="foodChart"></canvas>
-          </div>
+      <!-- Spending Chart -->
+      <div class="mb-10">
+        <h4 class="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+          <i class="fas fa-chart-line text-indigo-400"></i> Spending Over Time
+        </h4>
+        <div class="bg-slate-800/30 p-6 rounded-3xl border border-slate-700/30" style="height: 350px;">
+          <canvas id="spendingChart"></canvas>
         </div>
       </div>
 
+      <!-- Food Preferences Chart -->
+      <div class="mb-10">
+        <h4 class="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+          <i class="fas fa-utensils text-yellow-400"></i> Food Preferences
+        </h4>
+        <div class="bg-slate-800/30 p-6 rounded-3xl border border-slate-700/30" style="height: 350px;">
+          <canvas id="foodChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Order History -->
       <div>
-        <h4 class="text-xl font-bold mb-4 text-indigo-200">Order History</h4>
+        <h4 class="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+          <i class="fas fa-history text-indigo-400"></i> Order History
+        </h4>
         <div id="profileOrders" class="space-y-4 max-h-96 overflow-y-auto"></div>
       </div>
     </div>
@@ -175,14 +469,20 @@
         <p id="welcome" class="text-lg text-indigo-200 mt-2 font-medium"></p>
       </div>
       <div class="flex items-center gap-4">
+        <!-- Cart Icon -->
+        <button id="cartBtn" class="relative text-2xl p-3 bg-emerald-600/70 hover:bg-emerald-600 rounded-full transition-all shadow-lg" title="Shopping Cart">
+          <i class="fas fa-shopping-cart"></i>
+          <span id="cartBadge" class="cart-badge hidden">0</span>
+        </button>
+        
         <!-- Token Pass Icon -->
         <button id="tokenBtn" class="text-2xl p-3 bg-indigo-600/70 hover:bg-indigo-600 rounded-full transition-all shadow-lg" title="Token Pass">
           <i class="fas fa-ticket-alt"></i>
         </button>
         
-        <!-- Profile Icon -->
-        <button id="profileBtn" class="text-2xl p-3 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all shadow-lg" title="Profile">
-          <i class="fas fa-user"></i>
+        <!-- Profile Icon with Avatar -->
+        <button id="profileBtn" class="p-0 border-none bg-transparent shadow-lg transition transform hover:scale-110" title="Profile">
+          <div id="initialsAvatar" class="initials-avatar"></div>
         </button>
         
         <!-- Logout -->
@@ -209,340 +509,6 @@
     </section>
   </div>
 
-  <script>
-    const userEmail = localStorage.getItem('messmate_user_email');
-    const userName = localStorage.getItem('messmate_user_name') || '';
-    let profileComplete = localStorage.getItem('messmate_profile_complete') === 'true';
-    let profilePhoto = localStorage.getItem('messmate_profile_photo');
-    let userOrders = [];
-    let spendingChart = null, foodChart = null;
-
-    if (!userEmail) window.location.href = '/';
-
-    // Check profile completion
-    async function checkProfile() {
-      const res = await fetch(`/user/${userEmail}`);
-      const data = await res.json();
-      if (data.success) {
-        profileComplete = data.profileComplete;
-        profilePhoto = data.profilePhoto;
-        localStorage.setItem('messmate_profile_complete', profileComplete);
-        localStorage.setItem('messmate_profile_photo', profilePhoto || '');
-        
-        if (!profileComplete) {
-          document.getElementById('profileSetupModal').classList.remove('hidden');
-          document.getElementById('mainContent').style.display = 'none';
-          if (data.name) document.getElementById('nameInput').value = data.name;
-        } else {
-          document.getElementById('mainContent').style.display = 'block';
-        }
-      }
-    }
-
-    // Photo preview
-    document.getElementById('photoInput').addEventListener('change', function(e) {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          document.getElementById('previewPhoto').src = e.target.result;
-        }
-        reader.readAsDataURL(file);
-      }
-    });
-
-    // Save profile
-    document.getElementById('saveProfileBtn').addEventListener('click', async () => {
-      const name = document.getElementById('nameInput').value.trim();
-      const photo = document.getElementById('photoInput').files[0];
-      
-      if (!name) {
-        alert('Please enter your name');
-        return;
-      }
-      if (!photo) {
-        alert('Please select a photo');
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('email', userEmail);
-      formData.append('name', name);
-      formData.append('photo', photo);
-
-      const btn = document.getElementById('saveProfileBtn');
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Saving...';
-
-      try {
-        const res = await fetch('/update-profile', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
-
-        if (data.success) {
-          localStorage.setItem('messmate_user_name', data.name);
-          localStorage.setItem('messmate_profile_complete', true);
-          localStorage.setItem('messmate_profile_photo', data.profilePhoto);
-          profileComplete = true;
-          profilePhoto = data.profilePhoto;
-          
-          document.getElementById('profileSetupModal').classList.add('hidden');
-          document.getElementById('mainContent').style.display = 'block';
-          location.reload();
-        } else {
-          alert(data.error || 'Failed to save profile');
-        }
-      } catch (err) {
-        alert('Error saving profile');
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-check mr-2"></i> Save & Continue';
-      }
-    });
-
-    document.getElementById('welcome').textContent = `Welcome, ${userName || userEmail}`;
-
-    document.getElementById('logout').addEventListener('click', () => {
-      localStorage.clear();
-      window.location.href = '/';
-    });
-
-    // Token button handler
-    document.getElementById('tokenBtn').addEventListener('click', () => {
-      const today = new Date().toDateString();
-      const token = localStorage.getItem(`token_${today}_${userEmail}`);
-      const meals = localStorage.getItem(`tokenData_${today}_${userEmail}`);
-
-      if (!token || !meals) {
-        alert('❌ No active token for today. Please make a payment first!');
-        return;
-      }
-
-      document.getElementById('modalTokenNumber').textContent = token;
-      document.getElementById('modalTokenName').textContent = userName || userEmail;
-      document.getElementById('modalTokenPhoto').src = profilePhoto || 'https://via.placeholder.com/120';
-
-      const mealList = JSON.parse(meals);
-      const mealsHtml = mealList.map(m => 
-        `<li class="bg-white/5 p-2 rounded flex justify-between">
-          <span>${m.name}</span>
-          <span class="font-bold">Qty: ${m.quantity} × ₹${m.price}</span>
-        </li>`
-      ).join('');
-      
-      document.getElementById('modalMealsItems').innerHTML = mealsHtml;
-      document.getElementById('modalMealsList').classList.remove('hidden');
-      document.getElementById('tokenModal').classList.remove('hidden');
-    });
-
-    document.getElementById('closeTokenModal').addEventListener('click', () => {
-      document.getElementById('tokenModal').classList.add('hidden');
-    });
-
-    // Profile button handler
-    document.getElementById('profileBtn').addEventListener('click', () => {
-      updateProfileModal();
-      document.getElementById('profileModal').classList.remove('hidden');
-    });
-
-    document.getElementById('closeProfile').addEventListener('click', () => {
-      document.getElementById('profileModal').classList.add('hidden');
-      destroyCharts();
-    });
-
-    // Load meals
-    async function loadMeals() {
-      const res = await fetch('/meals');
-      const meals = await res.json();
-      document.getElementById('meals').innerHTML = meals.map(m => `
-        <div class="meal-card bg-slate-800/60 rounded-2xl overflow-hidden border border-slate-700/40 hover:border-indigo-500/60 transition-all">
-          <img src="${m.image}" alt="${m.name}" class="w-full h-56 object-cover">
-          <div class="p-6">
-            <h3 class="text-xl font-bold mb-3">${m.name}</h3>
-            <p class="text-sm text-slate-300 mb-4 line-clamp-3">${m.description || 'Delicious meal'}</p>
-            <div class="flex justify-between items-center">
-              <span class="text-2xl font-bold text-emerald-400">₹${m.price}</span>
-              <button onclick="bookMeal('${m.name}', ${m.price})" class="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-3 rounded-xl font-semibold">
-                Order
-              </button>
-            </div>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    window.bookMeal = async (mealName, price) => {
-      if (!profileComplete) {
-        alert('Please complete your profile first');
-        return;
-      }
-      
-      const res = await fetch('/book', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mealName, email: userEmail, price })
-      });
-      const data = await res.json();
-      if (data.success) {
-        alert('✓ Order placed!');
-        loadOrders();
-      } else {
-        alert(data.error || 'Booking failed');
-      }
-    };
-
-    async function loadOrders() {
-      const res = await fetch(`/user/${userEmail}`);
-      const data = await res.json();
-      if (data.success) {
-        userOrders = data.orders || [];
-        const todayStr = new Date().toDateString();
-        const todayUnpaid = userOrders.filter(o => new Date(o.date).toDateString() === todayStr && !o.paid);
-
-        let html = '';
-        if (todayUnpaid.length > 0) {
-          const total = todayUnpaid.reduce((s, o) => s + o.price, 0);
-          html += `
-            <div class="mb-6 p-6 bg-indigo-900/50 rounded-2xl">
-              <h4 class="text-xl font-bold mb-3">Pay for Today's Orders</h4>
-              <p class="mb-4">You have ${todayUnpaid.length} unpaid orders (₹${total})</p>
-              <button id="payBtn" class="bg-gradient-to-r from-indigo-500 to-purple-600 px-8 py-3 rounded-xl font-semibold">
-                Pay ₹${total}
-              </button>
-            </div>
-          `;
-        }
-
-        html += userOrders.map(o => `
-          <div class="bg-slate-700/40 p-6 rounded-xl mb-4">
-            <div class="flex justify-between">
-              <div>
-                <p class="font-bold text-xl">${o.mealName}</p>
-                <p class="text-sm text-slate-300">${new Date(o.date).toLocaleString()}</p>
-                <span class="text-${o.paid ? 'emerald' : 'red'}-400 text-sm">${o.paid ? 'Paid' : 'Unpaid'}</span>
-              </div>
-              <p class="text-xl font-bold text-emerald-400">₹${o.price}</p>
-            </div>
-          </div>
-        `).join('');
-
-        document.getElementById('orders').innerHTML = html || '<p class="text-center text-slate-400">No orders yet</p>';
-
-        const payBtn = document.getElementById('payBtn');
-        if (payBtn) payBtn.onclick = handlePay;
-      }
-    }
-
-    async function handlePay() {
-      const res = await fetch('/pay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: userEmail })
-      });
-      const data = await res.json();
-      if (data.success) {
-        const today = new Date().toDateString();
-        localStorage.setItem(`token_${today}_${userEmail}`, data.token);
-        localStorage.setItem(`tokenData_${today}_${userEmail}`, JSON.stringify(data.meals));
-        alert('✓ Payment successful! Click the token icon to view your pass.');
-        loadOrders();
-      } else {
-        alert(data.error || 'Payment failed');
-      }
-    }
-
-    function updateProfileModal() {
-      const todayStr = new Date().toDateString();
-      const todayUnpaid = userOrders.filter(o => new Date(o.date).toDateString() === todayStr && !o.paid);
-      document.getElementById('unpaidCount').textContent = todayUnpaid.length;
-      document.getElementById('score').textContent = -todayUnpaid.length;
-
-      const profileOrdersEl = document.getElementById('profileOrders');
-      profileOrdersEl.innerHTML = userOrders.length > 0 ? userOrders.map(o => `
-        <div class="bg-slate-700/40 p-4 rounded-xl">
-          <div class="flex justify-between">
-            <div>
-              <p class="font-bold">${o.mealName}</p>
-              <p class="text-sm text-slate-300">${new Date(o.date).toLocaleString()}</p>
-            </div>
-            <p class="font-bold text-emerald-400">₹${o.price}</p>
-          </div>
-        </div>
-      `).join('') : '<p class="text-center text-slate-400">No orders yet</p>';
-
-      updateSpendingChart();
-      updateFoodChart();
-    }
-
-    function destroyCharts() {
-      if (spendingChart) { spendingChart.destroy(); spendingChart = null; }
-      if (foodChart) { foodChart.destroy(); foodChart = null; }
-    }
-
-    function updateSpendingChart() {
-      const period = document.getElementById('periodSelect').value;
-      const ctx = document.getElementById('spendingChart').getContext('2d');
-      if (spendingChart) spendingChart.destroy();
-      
-      spendingChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-          datasets: [{
-            label: 'Spending',
-            data: [50, 100, 75, 150, 200, 100, 80],
-            borderColor: '#667eea',
-            tension: 0.4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: 'white' } } },
-          scales: {
-            y: { ticks: { color: 'white' }, grid: { color: 'rgba(255,255,255,0.1)' } },
-            x: { ticks: { color: 'white' }, grid: { color: 'rgba(255,255,255,0.1)' } }
-          }
-        }
-      });
-    }
-
-    function updateFoodChart() {
-      const ctx = document.getElementById('foodChart').getContext('2d');
-      if (foodChart) foodChart.destroy();
-      
-      foodChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: ['Meal 1', 'Meal 2', 'Meal 3'],
-          datasets: [{
-            label: 'Orders',
-            data: [5, 8, 3],
-            backgroundColor: '#22c55e'
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: 'white' } } },
-          scales: {
-            y: { ticks: { color: 'white' }, grid: { color: 'rgba(255,255,255,0.1)' } },
-            x: { ticks: { color: 'white' }, grid: { color: 'rgba(255,255,255,0.1)' } }
-          }
-        }
-      });
-    }
-
-    document.getElementById('periodSelect').addEventListener('change', () => {
-      updateSpendingChart();
-      updateFoodChart();
-    });
-
-    checkProfile();
-    loadMeals();
-    loadOrders();
-  </script>
+  <script src="script.js"></script>
 </body>
 </html>

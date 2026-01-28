@@ -1,4 +1,4 @@
-// script4.js - Token Verification with Auto Payment Detection
+// script4.js - Token Verification with UPI Payment - FIXED
 const tokenInput = document.getElementById('tokenInput');
 const verifyBtn = document.getElementById('verifyBtn');
 const errorMsg = document.getElementById('errorMsg');
@@ -56,7 +56,7 @@ async function fetchTokenDetails(token) {
 
 function displayTokenDetails(data) {
   // User details
-  document.getElementById('userName').textContent = data.userName;
+  document.getElementById('userName').textContent = data.userName || 'Unknown User';
   document.getElementById('userEmail').textContent = data.userEmail;
   document.getElementById('tokenNumber').textContent = `#${data.token}`;
   document.getElementById('tokenDate').textContent = new Date(data.date).toLocaleDateString('en-IN', {
@@ -112,20 +112,20 @@ function displayTokenDetails(data) {
 function generatePaymentQR(data) {
   const mainAmount = data.totalAmount;
   
-  // UPI string format
+  // UPI string format - properly encoded
   const upiString = `upi://pay?pa=9483246283@kotak811&pn=MessMate&am=${mainAmount}&cu=INR&tn=Token${data.token}`;
   
   document.getElementById('upiId').textContent = '9483246283@kotak811';
   
   // Clear existing QR
-  const qrContainer = document.getElementById('qrCanvas').parentElement;
-  qrContainer.innerHTML = '<div id="qrCodeDisplay"></div>';
+  const qrContainer = document.getElementById('qrCanvas');
+  qrContainer.innerHTML = '';
   
-  // Generate QR using Google Charts API (reliable fallback)
+  // Generate QR using Google Charts API
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(upiString)}`;
   
-  document.getElementById('qrCodeDisplay').innerHTML = `
-    <img src="${qrUrl}" alt="UPI QR Code" class="mx-auto rounded-lg shadow-lg" style="width: 256px; height: 256px;">
+  qrContainer.innerHTML = `
+    <img src="${qrUrl}" alt="UPI QR Code" class="mx-auto rounded-lg shadow-lg" style="width: 256px; height: 256px;" onerror="this.src='https://via.placeholder.com/256/667eea/ffffff?text=QR+Error'">
   `;
 }
 
@@ -133,13 +133,18 @@ function generatePaymentQR(data) {
 function startPaymentPolling(token) {
   stopPaymentPolling(); // Clear any existing interval
   
+  console.log('🔄 Starting auto payment detection for token:', token);
+  
   paymentCheckInterval = setInterval(async () => {
     try {
       const res = await fetch(`/token/${token}`);
       const data = await res.json();
       
+      console.log('Checking payment status...', data.verified ? 'VERIFIED' : 'Not yet verified');
+      
       if (data.success && data.verified) {
         // Payment detected!
+        console.log('✅ Payment detected! Token verified.');
         showSuccess('Payment received! Token verified automatically.');
         currentToken = data;
         displayTokenDetails(data);
@@ -149,23 +154,24 @@ function startPaymentPolling(token) {
       console.error('Error checking payment status:', err);
     }
   }, 5000); // Check every 5 seconds
-  
-  console.log('Started auto payment detection...');
 }
 
 function stopPaymentPolling() {
   if (paymentCheckInterval) {
     clearInterval(paymentCheckInterval);
     paymentCheckInterval = null;
-    console.log('Stopped payment detection');
+    console.log('⏹️ Stopped payment detection');
   }
 }
 
-// Manual verification button (keep as backup)
+// Manual verification button (backup)
 confirmPaymentBtn.addEventListener('click', async () => {
-  if (!currentToken) return;
+  if (!currentToken) {
+    showError('No token loaded');
+    return;
+  }
 
-  if (!confirm('Have you completed the payment? This will manually verify the token.')) {
+  if (!confirm('Have you completed the UPI payment?\n\nThis will manually mark the payment as received.')) {
     return;
   }
 
@@ -178,7 +184,8 @@ confirmPaymentBtn.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         token: currentToken.token,
-        amount: currentToken.totalAmount
+        amount: currentToken.totalAmount,
+        paymentMethod: 'upi'
       })
     });
 
@@ -186,6 +193,7 @@ confirmPaymentBtn.addEventListener('click', async () => {
 
     if (data.success) {
       showSuccess('Payment verified manually! Token activated.');
+      stopPaymentPolling();
       await fetchTokenDetails(currentToken.token);
     } else {
       showError(data.error || 'Verification failed.');
@@ -195,10 +203,11 @@ confirmPaymentBtn.addEventListener('click', async () => {
     console.error(err);
   } finally {
     confirmPaymentBtn.disabled = false;
-    confirmPaymentBtn.innerHTML = '<i class="fas fa-check-double mr-2"></i> Manual Verify (if auto-detect fails)';
+    confirmPaymentBtn.innerHTML = '<i class="fas fa-hand-pointer mr-2"></i> Manual Verify (if auto-detect fails)';
   }
 });
 
+// Copy UPI ID to clipboard
 window.copyUPI = function() {
   const upiId = document.getElementById('upiId').textContent;
   navigator.clipboard.writeText(upiId).then(() => {
@@ -217,7 +226,7 @@ function showError(message) {
 function showSuccess(message) {
   const toast = document.createElement('div');
   toast.className = 'fixed top-4 right-4 bg-emerald-500 text-white px-6 py-4 rounded-xl shadow-lg z-50 flex items-center gap-3 animate-slide-in';
-  toast.innerHTML = `<i class="fas fa-check mr-2"></i> ${message}`;
+  toast.innerHTML = `<i class="fas fa-check-circle mr-2"></i> ${message}`;
   document.body.appendChild(toast);
   setTimeout(() => {
     toast.classList.add('opacity-0', 'transform', 'translate-x-full', 'transition-all', 'duration-300');
@@ -229,3 +238,6 @@ function showSuccess(message) {
 window.addEventListener('beforeunload', () => {
   stopPaymentPolling();
 });
+
+// Log script loaded
+console.log('✅ Token Verification script loaded');
