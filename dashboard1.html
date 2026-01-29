@@ -72,12 +72,29 @@
       -webkit-overflow-scrolling: touch;
     }
     
+    /* Larger profile photo */
     .profile-photo {
-      width: 80px;
-      height: 80px;
+      width: 120px;
+      height: 120px;
       border-radius: 50%;
       object-fit: cover;
-      border: 3px solid #6366f1;
+      border: 4px solid #6366f1;
+      box-shadow: 0 10px 25px rgba(99, 102, 241, 0.3);
+    }
+    
+    @media (min-width: 640px) {
+      .profile-photo {
+        width: 150px;
+        height: 150px;
+        border-width: 5px;
+      }
+    }
+    
+    @media (min-width: 1024px) {
+      .profile-photo {
+        width: 180px;
+        height: 180px;
+      }
     }
     
     .fade-in { 
@@ -95,21 +112,8 @@
     }
     
     .animate-slide-in { 
-      animation: slide-in 0.3s ease-out; 
-    }
-
-    /* Responsive adjustments */
-    @media (max-width: 640px) {
-      .profile-photo {
-        width: 60px;
-        height: 60px;
-      }
-      
-      .notification-panel {
-        max-height: 300px;
-      }
-    }
-
+      animation: slide-in 0.3s ease-out; }
+    
     /* Safe area for notched devices */
     @supports (padding: max(0px)) {
       body {
@@ -229,7 +233,7 @@
       <!-- Food Types Counters -->
       <div class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 shadow-xl">
         <h3 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-indigo-200 flex items-center gap-2 sm:gap-3">
-          <i class="fas fa-utensils"></i> Food Types Ordered
+          <i class="fas fa-utensils"></i> Food Types Ordered (Unverified)
         </h3>
         <div id="mealTypes" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6"></div>
       </div>
@@ -268,26 +272,33 @@
             <i class="fas fa-user-circle"></i> Customer Details
           </h3>
           
-          <!-- Customer Photo and Info -->
-          <div class="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 mb-4 sm:mb-6">
-            <img id="customerPhoto" src="https://via.placeholder.com/80/667eea/ffffff?text=Photo" class="profile-photo" alt="Customer">
-            <div class="flex-1 w-full">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
-                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
-                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Name</p>
-                  <p id="userName" class="text-white text-lg sm:text-xl font-semibold">-</p>
+          <!-- Customer Photo and Info - REDESIGNED -->
+          <div class="flex flex-col items-center gap-6 mb-6">
+            <!-- Large Profile Photo -->
+            <img id="customerPhoto" src="https://via.placeholder.com/200/667eea/ffffff?text=Photo" class="profile-photo" alt="Customer">
+            
+            <!-- Compact Details Grid -->
+            <div class="w-full max-w-2xl">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-center">
+                <div class="bg-slate-700/40 p-3 rounded-xl">
+                  <p class="text-slate-400 text-xs mb-1">Name</p>
+                  <p id="userName" class="text-white text-sm sm:text-base font-semibold">-</p>
                 </div>
-                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
-                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Email</p>
-                  <p id="userEmail" class="text-white text-base sm:text-xl font-semibold break-all">-</p>
+                <div class="bg-slate-700/40 p-3 rounded-xl">
+                  <p class="text-slate-400 text-xs mb-1">Email</p>
+                  <p id="userEmail" class="text-white text-xs sm:text-sm font-semibold break-all">-</p>
                 </div>
-                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
-                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Token Number</p>
-                  <p id="tokenNumber" class="text-indigo-400 text-xl sm:text-2xl font-bold">-</p>
+                <div class="bg-slate-700/40 p-3 rounded-xl">
+                  <p class="text-slate-400 text-xs mb-1">Token</p>
+                  <p id="tokenNumber" class="text-indigo-400 text-base sm:text-lg font-bold">-</p>
                 </div>
-                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
-                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Date</p>
-                  <p id="tokenDate" class="text-white text-base sm:text-xl font-semibold">-</p>
+                <div class="bg-slate-700/40 p-3 rounded-xl">
+                  <p class="text-slate-400 text-xs mb-1">Batch</p>
+                  <p id="batchNumber" class="text-purple-400 text-base sm:text-lg font-bold">-</p>
+                </div>
+                <div class="bg-slate-700/40 p-3 rounded-xl sm:col-span-2">
+                  <p class="text-slate-400 text-xs mb-1">Date</p>
+                  <p id="tokenDate" class="text-white text-sm font-semibold">-</p>
                 </div>
               </div>
             </div>
@@ -394,6 +405,6 @@
     </section>
   </div>
 
-  <script src="script1.js"></script>
+  <script src="script1-enhanced.js"></script>
 </body>
 </html>
