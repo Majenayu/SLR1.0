@@ -2,47 +2,58 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <title>Producer Dashboard - MessMate</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+    
     @keyframes slideIn {
       from { opacity: 0; transform: translateY(20px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    
     .counter-card { 
       animation: slideIn 0.4s ease-out; 
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
+    
     .counter-card:hover {
       transform: translateY(-4px);
       box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
     }
+    
     #reader { width: 100%; max-width: 400px; margin: 0 auto; }
     #scanner-modal { z-index: 1000; }
     .scan-result { animation: slideIn 0.5s ease-out; }
+    
     .gradient-text {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
+    
     .modal-overlay {
       backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
     }
     
-    /* Notification Bell Animation */
     @keyframes bellRing {
       0%, 100% { transform: rotate(0deg); }
       10%, 30% { transform: rotate(-10deg); }
       20%, 40% { transform: rotate(10deg); }
       50% { transform: rotate(0deg); }
     }
+    
     .bell-ringing {
       animation: bellRing 0.5s ease-in-out;
     }
+    
     .notification-dot {
       position: absolute;
       top: -4px;
@@ -54,73 +65,141 @@
       border: 2px solid #1e293b;
       animation: pulse 2s infinite;
     }
+    
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.5; transform: scale(1.2); }
     }
+    
     .notification-panel {
       max-height: 400px;
       overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
+    
+    .profile-photo {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #6366f1;
+    }
+    
+    .fade-in { 
+      animation: fadeIn 0.6s ease-out; 
+    }
+    
+    @keyframes fadeIn { 
+      from { opacity: 0; transform: translateY(20px); } 
+      to { opacity: 1; transform: translateY(0); } 
+    }
+    
+    @keyframes slide-in {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .animate-slide-in { 
+      animation: slide-in 0.3s ease-out; 
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 640px) {
+      .profile-photo {
+        width: 60px;
+        height: 60px;
+      }
+      
+      .notification-panel {
+        max-height: 300px;
+      }
+    }
+
+    /* Safe area for notched devices */
+    @supports (padding: max(0px)) {
+      body {
+        padding-left: max(0px, env(safe-area-inset-left));
+        padding-right: max(0px, env(safe-area-inset-right));
+      }
+    }
+
+    /* Touch-friendly sizing */
+    button, .notification-option {
+      min-height: 44px;
+      min-width: 44px;
+    }
+
+    /* Prevent zoom on input */
+    input[type="text"],
+    input[type="number"],
+    select {
+      font-size: 16px !important;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
   </style>
 </head>
-<body class="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 text-white p-6 overflow-x-hidden">
+<body class="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 text-white overflow-x-hidden">
   <!-- Notification Sound -->
   <audio id="notificationSound" preload="auto">
     <source src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" type="audio/mpeg">
   </audio>
 
-  <div class="max-w-6xl mx-auto px-4 md:px-6">
-    <div class="flex items-center justify-between mb-8">
+  <div class="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6">
+    <!-- Header -->
+    <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-6 sm:mb-8 gap-4">
       <div>
-        <h1 class="text-4xl font-bold gradient-text">Producer Dashboard</h1>
-        <p id="producer-welcome" class="text-base text-slate-300 mt-2 font-medium"></p>
+        <h1 class="text-3xl sm:text-4xl md:text-5xl font-bold gradient-text">Producer Dashboard</h1>
+        <p id="producer-welcome" class="text-sm sm:text-base text-slate-300 mt-2 font-medium"></p>
       </div>
       
-      <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2 sm:gap-3 md:gap-4 flex-wrap w-full lg:w-auto">
         <!-- Notification Bell -->
         <div class="relative">
-          <button id="notificationBell" class="text-2xl p-4 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all duration-300 hover:scale-110 shadow-lg relative" title="Notifications">
+          <button id="notificationBell" class="text-lg sm:text-xl md:text-2xl p-2 sm:p-3 md:p-4 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all duration-300 hover:scale-110 shadow-lg relative" title="Notifications">
             <i class="fas fa-bell"></i>
             <span id="notificationDot" class="notification-dot hidden"></span>
           </button>
           
           <!-- Notification Dropdown -->
-          <div id="notificationPanel" class="hidden absolute right-0 mt-2 w-96 bg-slate-800/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-700/50 z-50">
-            <div class="p-6">
-              <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold text-white">Notifications</h3>
-                <button id="sendReminderBtn" class="bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg text-sm transition-all duration-300">
+          <div id="notificationPanel" class="hidden fixed sm:absolute left-0 right-0 sm:left-auto sm:right-0 top-16 sm:top-auto sm:mt-2 w-full sm:w-96 bg-slate-800/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-700/50 z-50 mx-2 sm:mx-0">
+            <div class="p-4 sm:p-6">
+              <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+                <h3 class="text-lg sm:text-xl font-bold text-white">Notifications</h3>
+                <button id="sendReminderBtn" class="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 px-4 py-2 rounded-lg text-xs sm:text-sm transition-all duration-300">
                   <i class="fas fa-paper-plane mr-2"></i>Send Reminders
                 </button>
               </div>
               <div id="notificationList" class="notification-panel space-y-3">
-                <p class="text-slate-400 text-center py-4">No new notifications</p>
+                <p class="text-slate-400 text-center py-4 text-sm">No new notifications</p>
               </div>
             </div>
           </div>
         </div>
 
-        <button id="scanBtn" class="text-2xl p-4 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all duration-300 hover:scale-110 shadow-lg" title="Scan QR">
+        <button id="scanBtn" class="text-lg sm:text-xl md:text-2xl p-2 sm:p-3 md:p-4 bg-slate-800/50 hover:bg-slate-700/50 rounded-full transition-all duration-300 hover:scale-110 shadow-lg" title="Scan QR">
           <i class="fas fa-qrcode"></i>
         </button>
-        <button onclick="window.location.href='dashboard4.html'" class="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
-          <i class="fas fa-ticket-alt mr-2"></i>Verify Token
+        
+        <button onclick="window.location.href='dashboard3.html'" class="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 px-3 sm:px-4 md:px-6 py-2 sm:py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl text-xs sm:text-sm md:text-base">
+          <i class="fas fa-cog mr-1 sm:mr-2"></i><span class="hidden xs:inline">Manage</span>
         </button>
-        <button onclick="window.location.href='dashboard3.html'" class="bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">
-          <i class="fas fa-cog mr-2"></i>Manage Item
+        
+        <button id="logout" class="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 px-3 sm:px-4 md:px-6 py-2 sm:py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl text-xs sm:text-sm md:text-base">
+          <i class="fas fa-sign-out-alt mr-1 sm:mr-2"></i>Logout
         </button>
-        <button id="logout" class="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl">Logout</button>
       </div>
     </div>
 
     <!-- Stats Section -->
-    <section class="mb-12">
-      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h2 class="text-3xl font-bold text-indigo-200 flex items-center gap-3">
-          <i class="fas fa-chart-pie"></i> Order Statistics
+    <section class="mb-8 sm:mb-12">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-3 sm:gap-4">
+        <h2 class="text-2xl sm:text-3xl font-bold text-indigo-200 flex items-center gap-2 sm:gap-3">
+          <i class="fas fa-chart-pie"></i> <span class="text-xl sm:text-3xl">Order Statistics</span>
         </h2>
-        <select id="periodSelect" class="bg-slate-700/80 text-white px-6 py-3 rounded-xl border border-slate-600/50 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50 transition-all duration-200">
+        <select id="periodSelect" class="w-full sm:w-auto bg-slate-700/80 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl border border-slate-600/50 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50 transition-all duration-200 text-sm sm:text-base">
           <option value="day">Today</option>
           <option value="week">This Week</option>
           <option value="month">This Month</option>
@@ -129,107 +208,256 @@
       </div>
       
       <!-- Main Counters -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div class="counter-card bg-gradient-to-br from-blue-500/80 to-blue-600/80 backdrop-blur-sm p-6 rounded-2xl text-center border border-blue-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
-          <h3 class="text-lg font-semibold text-white/90 mb-2 flex items-center justify-center gap-2">
-            <i class="fas fa-boxes text-blue-200"></i> Total Orders
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-6 sm:mb-8">
+        <div class="counter-card bg-gradient-to-br from-blue-500/80 to-blue-600/80 backdrop-blur-sm p-4 sm:p-6 rounded-2xl text-center border border-blue-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
+          <h3 class="text-xs sm:text-sm md:text-lg font-semibold text-white/90 mb-1 sm:mb-2 flex items-center justify-center gap-1 sm:gap-2">
+            <i class="fas fa-boxes text-blue-200 text-sm sm:text-base"></i> <span class="hidden sm:inline">Total Orders</span><span class="sm:hidden">Total</span>
           </h3>
-          <p class="text-3xl font-bold text-white" id="totalOrders">0</p>
+          <p class="text-2xl sm:text-3xl font-bold text-white" id="totalOrders">0</p>
         </div>
-        <div class="counter-card bg-gradient-to-br from-emerald-500/80 to-emerald-600/80 backdrop-blur-sm p-6 rounded-2xl text-center border border-emerald-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
-          <h3 class="text-lg font-semibold text-white/90 mb-2 flex items-center justify-center gap-2">
-            <i class="fas fa-check-circle text-emerald-200"></i> Paid Orders
+        <div class="counter-card bg-gradient-to-br from-emerald-500/80 to-emerald-600/80 backdrop-blur-sm p-4 sm:p-6 rounded-2xl text-center border border-emerald-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
+          <h3 class="text-xs sm:text-sm md:text-lg font-semibold text-white/90 mb-1 sm:mb-2 flex items-center justify-center gap-1 sm:gap-2">
+            <i class="fas fa-check-circle text-emerald-200 text-sm sm:text-base"></i> <span class="hidden sm:inline">Paid Orders</span><span class="sm:hidden">Paid</span>
           </h3>
-          <p class="text-3xl font-bold text-white" id="paidOrders">0</p>
+          <p class="text-2xl sm:text-3xl font-bold text-white" id="paidOrders">0</p>
         </div>
-        <div class="counter-card bg-gradient-to-br from-red-500/80 to-red-600/80 backdrop-blur-sm p-6 rounded-2xl text-center border border-red-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
-          <h3 class="text-lg font-semibold text-white/90 mb-2 flex items-center justify-center gap-2">
-            <i class="fas fa-exclamation-triangle text-red-200"></i> Unpaid Orders
+        <div class="counter-card bg-gradient-to-br from-red-500/80 to-red-600/80 backdrop-blur-sm p-4 sm:p-6 rounded-2xl text-center border border-red-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
+          <h3 class="text-xs sm:text-sm md:text-lg font-semibold text-white/90 mb-1 sm:mb-2 flex items-center justify-center gap-1 sm:gap-2">
+            <i class="fas fa-exclamation-triangle text-red-200 text-sm sm:text-base"></i> <span class="hidden sm:inline">Unpaid Orders</span><span class="sm:hidden">Unpaid</span>
           </h3>
-          <p class="text-3xl font-bold text-white" id="unpaidOrders">0</p>
+          <p class="text-2xl sm:text-3xl font-bold text-white" id="unpaidOrders">0</p>
         </div>
-        <div class="counter-card bg-gradient-to-br from-purple-500/80 to-purple-600/80 backdrop-blur-sm p-6 rounded-2xl text-center border border-purple-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
-          <h3 class="text-lg font-semibold text-white/90 mb-2 flex items-center justify-center gap-2" id="scannedLabel">
-            <i class="fas fa-qrcode text-purple-200"></i> Today's Verified
+        <div class="counter-card bg-gradient-to-br from-purple-500/80 to-purple-600/80 backdrop-blur-sm p-4 sm:p-6 rounded-2xl text-center border border-purple-700/50 shadow-xl hover:shadow-2xl transition-all duration-300">
+          <h3 class="text-xs sm:text-sm md:text-lg font-semibold text-white/90 mb-1 sm:mb-2 flex items-center justify-center gap-1 sm:gap-2" id="scannedLabel">
+            <i class="fas fa-qrcode text-purple-200 text-sm sm:text-base"></i> <span class="hidden sm:inline">Today's Verified</span><span class="sm:hidden">Verified</span>
           </h3>
-          <p class="text-3xl font-bold text-white" id="scannedOrders">0</p>
+          <p class="text-2xl sm:text-3xl font-bold text-white" id="scannedOrders">0</p>
         </div>
       </div>
 
       <!-- Food Types Counters -->
-      <div class="bg-slate-800/40 backdrop-blur-sm p-8 rounded-2xl border border-slate-700/50 shadow-xl">
-        <h3 class="text-2xl font-bold mb-6 text-indigo-200 flex items-center gap-3">
+      <div class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 shadow-xl">
+        <h3 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-indigo-200 flex items-center gap-2 sm:gap-3">
           <i class="fas fa-utensils"></i> Food Types Ordered
         </h3>
-        <div id="mealTypes" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+        <div id="mealTypes" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6"></div>
       </div>
     </section>
 
-    
-    <!-- Scanned Orders Verification Section -->
-    <section class="mb-12">
-      <h2 class="text-3xl font-bold mb-6 text-indigo-200 flex items-center gap-3">
-        <i class="fas fa-clipboard-list"></i> Pending Verifications
+    <!-- Token Verification Section -->
+    <section class="mb-8 sm:mb-12">
+      <h2 class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6 text-indigo-200 flex items-center gap-2 sm:gap-3">
+        <i class="fas fa-ticket-alt"></i> <span class="text-xl sm:text-3xl">Token Verification</span>
       </h2>
-      <div id="pendingVerifications" class="bg-slate-800/40 backdrop-blur-sm p-8 rounded-2xl border border-slate-700/50 space-y-6 min-h-[200px] shadow-xl">
-        <div class="text-slate-400 text-center py-12 flex items-center justify-center gap-3">
-          <i class="fas fa-qrcode text-3xl opacity-50"></i>
+      
+      <!-- Token Input -->
+      <div class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 mb-6 sm:mb-8 fade-in shadow-xl">
+        <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <input 
+            type="text" 
+            id="tokenInput" 
+            placeholder="Enter Token Number" 
+            class="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white text-base sm:text-lg focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50"
+          />
+          <button 
+            id="verifyBtn" 
+            class="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg text-sm sm:text-base"
+          >
+            <i class="fas fa-search mr-2"></i> Verify Token
+          </button>
+        </div>
+        <p id="errorMsg" class="mt-4 text-red-400 hidden text-sm sm:text-base"></p>
+      </div>
+
+      <!-- Token Details Section -->
+      <div id="tokenDetails" class="hidden fade-in">
+        <!-- User Info -->
+        <div class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 mb-4 sm:mb-6 shadow-xl">
+          <h3 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-indigo-200 flex items-center gap-2 sm:gap-3">
+            <i class="fas fa-user-circle"></i> Customer Details
+          </h3>
+          
+          <!-- Customer Photo and Info -->
+          <div class="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 mb-4 sm:mb-6">
+            <img id="customerPhoto" src="https://via.placeholder.com/80/667eea/ffffff?text=Photo" class="profile-photo" alt="Customer">
+            <div class="flex-1 w-full">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
+                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
+                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Name</p>
+                  <p id="userName" class="text-white text-lg sm:text-xl font-semibold">-</p>
+                </div>
+                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
+                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Email</p>
+                  <p id="userEmail" class="text-white text-base sm:text-xl font-semibold break-all">-</p>
+                </div>
+                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
+                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Token Number</p>
+                  <p id="tokenNumber" class="text-indigo-400 text-xl sm:text-2xl font-bold">-</p>
+                </div>
+                <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl text-center sm:text-left">
+                  <p class="text-slate-400 text-xs sm:text-sm mb-1 sm:mb-2">Date</p>
+                  <p id="tokenDate" class="text-white text-base sm:text-xl font-semibold">-</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Order Details -->
+        <div class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 mb-4 sm:mb-6 shadow-xl">
+          <h3 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-indigo-200 flex items-center gap-2 sm:gap-3">
+            <i class="fas fa-utensils"></i> Order Details
+          </h3>
+          <div id="mealsList" class="space-y-3 sm:space-y-4 mb-4 sm:mb-6"></div>
+          <div class="border-t border-slate-600/50 pt-4 sm:pt-6 mt-4 sm:mt-6">
+            <div class="flex justify-between items-center text-xl sm:text-2xl font-bold">
+              <span class="text-slate-300">Total Amount:</span>
+              <span id="totalAmount" class="text-emerald-400">₹0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Payment & Status Section -->
+        <div class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 shadow-xl">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-3">
+            <h3 class="text-xl sm:text-2xl font-bold text-indigo-200 flex items-center gap-2 sm:gap-3">
+              <i class="fas fa-check-circle"></i> Payment Status
+            </h3>
+            <div id="statusBadge" class="px-4 sm:px-6 py-2 sm:py-3 rounded-full font-semibold text-base sm:text-lg"></div>
+          </div>
+
+          <!-- Payment Section -->
+          <div id="paymentSection" class="hidden">
+            <div class="bg-gradient-to-r from-purple-900/30 to-indigo-900/30 border border-purple-500/50 rounded-xl p-4 sm:p-6 mb-4 sm:mb-6">
+              <h4 class="text-lg sm:text-xl font-bold text-purple-200 mb-3 sm:mb-4 flex items-center gap-2">
+                <i class="fas fa-qrcode"></i> UPI Payment
+              </h4>
+              <p class="text-slate-300 mb-3 sm:mb-4 text-sm sm:text-base">Scan the QR code below with any UPI app to complete payment</p>
+              
+              <!-- QR Code Display -->
+              <div class="bg-white p-3 sm:p-4 rounded-xl inline-block mb-3 sm:mb-4 w-full flex justify-center">
+                <div id="qrCanvas"></div>
+              </div>
+
+              <div class="bg-slate-700/50 p-3 sm:p-4 rounded-xl mb-3 sm:mb-4">
+                <p class="text-xs sm:text-sm text-slate-300 mb-2">Or manually enter UPI ID:</p>
+                <div class="flex items-center gap-2">
+                  <code id="upiId" class="flex-1 bg-slate-800/50 px-3 sm:px-4 py-2 rounded text-emerald-400 font-mono text-sm sm:text-lg break-all">-</code>
+                  <button onclick="copyUPI()" class="bg-indigo-600 hover:bg-indigo-700 px-3 sm:px-4 py-2 rounded transition flex-shrink-0">
+                    <i class="fas fa-copy"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Auto-detection info -->
+              <div class="bg-blue-900/30 border border-blue-500/50 rounded-xl p-3 sm:p-4 mb-3 sm:mb-4">
+                <p class="text-blue-200 text-xs sm:text-sm flex items-start gap-2">
+                  <i class="fas fa-info-circle mt-1 flex-shrink-0"></i>
+                  <span><strong>Auto-Detection Active:</strong> After you complete the payment, the system will automatically detect it within a few seconds.</span>
+                </p>
+              </div>
+
+              <div class="bg-yellow-900/30 border border-yellow-500/50 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6">
+                <p class="text-yellow-200 text-xs sm:text-sm flex items-start gap-2">
+                  <i class="fas fa-stopwatch mt-1 flex-shrink-0"></i>
+                  <span>Payment detection may take 5-10 seconds. If auto-detection fails, use the manual verify button below.</span>
+                </p>
+              </div>
+
+              <!-- Manual verify button -->
+              <button 
+                id="confirmPaymentBtn" 
+                class="w-full bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg text-sm sm:text-lg"
+              >
+                <i class="fas fa-hand-pointer mr-2"></i> Manual Verify
+              </button>
+            </div>
+          </div>
+
+          <!-- Verified Info -->
+          <div id="verifiedInfo" class="hidden bg-emerald-900/30 border border-emerald-500/50 rounded-xl p-4 sm:p-6">
+            <div class="flex items-center gap-3 mb-4">
+              <i class="fas fa-check-circle text-emerald-400 text-2xl sm:text-3xl"></i>
+              <div>
+                <p class="text-emerald-300 text-base sm:text-lg font-bold">Payment Received & Token Verified!</p>
+                <p class="text-emerald-200 text-xs sm:text-sm">Verified at: <span id="verifiedAt" class="font-semibold">-</span></p>
+              </div>
+            </div>
+            <div class="bg-emerald-800/30 rounded-lg p-3 sm:p-4">
+              <p class="text-emerald-100 text-xs sm:text-sm">
+                <i class="fas fa-utensils mr-2"></i>
+                This token has been successfully verified. The customer can now collect their order.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pending Verifications Section -->
+    <section class="mb-8 sm:mb-12">
+      <h2 class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6 text-indigo-200 flex items-center gap-2 sm:gap-3">
+        <i class="fas fa-clipboard-list"></i> <span class="text-xl sm:text-3xl">Pending Verifications</span>
+      </h2>
+      <div id="pendingVerifications" class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 space-y-4 sm:space-y-6 min-h-[150px] sm:min-h-[200px] shadow-xl">
+        <div class="text-slate-400 text-center py-8 sm:py-12 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <i class="fas fa-qrcode text-2xl sm:text-3xl opacity-50"></i>
           <div>
-            <p class="text-lg">Scan a QR to start verification.</p>
-            <p class="text-sm mt-1">Ready to process student orders</p>
+            <p class="text-base sm:text-lg">Scan a QR to start verification.</p>
+            <p class="text-xs sm:text-sm mt-1">Ready to process student orders</p>
           </div>
         </div>
       </div>
     </section>
 
     <!-- Live Updates Section -->
-    <section class="mb-12">
-      <h2 class="text-3xl font-bold mb-6 text-indigo-200 flex items-center gap-3">
-        <i class="fas fa-star"></i> Live Rating Updates
+    <section class="mb-8 sm:mb-12">
+      <h2 class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6 text-indigo-200 flex items-center gap-2 sm:gap-3">
+        <i class="fas fa-star"></i> <span class="text-xl sm:text-3xl">Live Rating Updates</span>
       </h2>
-      <div id="live" class="bg-slate-800/40 backdrop-blur-sm p-8 rounded-2xl border border-slate-700/50 min-h-[150px] shadow-xl overflow-y-auto max-h-96"></div>
+      <div id="live" class="bg-slate-800/40 backdrop-blur-sm p-4 sm:p-6 md:p-8 rounded-2xl border border-slate-700/50 min-h-[100px] sm:min-h-[150px] shadow-xl overflow-y-auto max-h-72 sm:max-h-96"></div>
     </section>
   </div>
 
   <!-- Scanner Modal -->
-  <div id="scannerModal" class="fixed inset-0 bg-black/80 modal-overlay flex items-center justify-center z-50 hidden">
-    <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 max-w-lg w-full mx-4 border border-slate-700/50 shadow-2xl">
-      <div class="flex justify-between items-center mb-6">
-        <h3 class="text-2xl font-bold gradient-text flex items-center gap-3">
+  <div id="scannerModal" class="fixed inset-0 bg-black/80 modal-overlay flex items-center justify-center z-50 hidden p-2 sm:p-4">
+    <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-4 sm:p-6 md:p-8 max-w-lg w-full mx-4 border border-slate-700/50 shadow-2xl">
+      <div class="flex justify-between items-center mb-4 sm:mb-6">
+        <h3 class="text-xl sm:text-2xl font-bold gradient-text flex items-center gap-2 sm:gap-3">
           <i class="fas fa-qrcode"></i> QR Scanner
         </h3>
         <button id="closeScanner" class="text-3xl hover:text-red-400 transition-colors duration-200">×</button>
       </div>
       <div id="reader" class="mb-4"></div>
-      <p class="text-base text-slate-300 text-center flex items-center justify-center gap-2">
+      <p class="text-sm sm:text-base text-slate-300 text-center flex items-center justify-center gap-2">
         <i class="fas fa-mobile-alt mr-2"></i> Scan student's QR code
       </p>
     </div>
   </div>
 
   <!-- Verification Modal -->
-  <div id="verifyModal" class="fixed inset-0 bg-black/60 modal-overlay flex items-center justify-center z-50 hidden">
-    <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-8 max-w-2xl w-full mx-4 border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-6">
-        <h3 class="text-2xl font-bold gradient-text flex items-center gap-3">
+  <div id="verifyModal" class="fixed inset-0 bg-black/60 modal-overlay flex items-center justify-center z-50 hidden p-2 sm:p-4">
+    <div class="bg-slate-800/95 backdrop-blur-sm rounded-2xl p-4 sm:p-6 md:p-8 max-w-2xl w-full mx-4 border border-slate-700/50 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4 sm:mb-6">
+        <h3 class="text-xl sm:text-2xl font-bold gradient-text flex items-center gap-2 sm:gap-3">
           <i class="fas fa-clipboard-check"></i> Verify Order
         </h3>
         <button id="closeVerify" class="text-3xl hover:text-red-400 transition-colors duration-200">×</button>
       </div>
-      <div id="verifyContent" class="space-y-6">
+      <div id="verifyContent" class="space-y-4 sm:space-y-6">
         <!-- Dynamic content here -->
       </div>
-      <div class="flex justify-end gap-4 mt-8 pt-6 border-t border-slate-700/50">
-        <button id="cancelVerify" class="px-6 py-3 bg-gray-600/80 hover:bg-gray-700/80 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg"> 
+      <div class="flex flex-col sm:flex-row justify-end gap-3 sm:gap-4 mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-slate-700/50">
+        <button id="cancelVerify" class="px-4 sm:px-6 py-2 sm:py-3 bg-gray-600/80 hover:bg-gray-700/80 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-sm sm:text-base"> 
           <i class="fas fa-times mr-2"></i> Cancel
         </button>
-        <button id="doneVerify" class="px-6 py-3 bg-emerald-600/80 hover:bg-emerald-700/80 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg">
+        <button id="doneVerify" class="px-4 sm:px-6 py-2 sm:py-3 bg-emerald-600/80 hover:bg-emerald-700/80 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-sm sm:text-base">
           <i class="fas fa-check mr-2"></i> Done & Verify
         </button>
       </div>
     </div>
   </div>
 
-  <script src="script1.js"></script>
+  <script src="producer-dashboard-merged.js"></script>
 </body>
 </html>
