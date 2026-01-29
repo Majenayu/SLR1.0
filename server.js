@@ -1048,6 +1048,80 @@ function broadcastRatingUpdate(mealName, avgRating, totalRatings) {
   });
 }
 
+// Add this new endpoint to your server.js file
+
+// Enhanced Producer stats with batch-based counting (excludes verified orders)
+app.get("/producer/stats-batch", async (req, res) => {
+  try {
+    const { period = 'day' } = req.query;
+    const users = await User.find({});
+    const today = new Date().toISOString().split('T')[0];
+    
+    let allOrders = [];
+    let verifiedCount = 0;
+    const verifiedTokens = new Set();
+    
+    // Collect all verified tokens for today
+    const todayTokens = await Token.find({ date: today, verified: true });
+    todayTokens.forEach(token => {
+      verifiedTokens.add(`${token.token}-${token.batch}-${token.date}`);
+      verifiedCount += token.meals.reduce((sum, m) => sum + m.quantity, 0);
+    });
+    
+    users.forEach(u => {
+      allOrders.push(...(u.orders || []));
+    });
+    
+    const now = new Date();
+    let startDate;
+    switch (period) {
+      case 'day':
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case 'week':
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(0);
+    }
+
+    const filteredOrders = allOrders.filter(o => new Date(o.date) >= startDate);
+
+    const total = filteredOrders.length;
+    const paid = filteredOrders.filter(o => o.paid).length;
+    const unpaid = total - paid;
+
+    // Count meals EXCLUDING verified orders
+    const mealCounts = {};
+    filteredOrders.forEach(order => {
+      // Create unique key for this order's token
+      const tokenKey = `${order.token}-${order.batch}-${order.orderDate}`;
+      
+      // Only count if this token is NOT verified
+      if (!verifiedTokens.has(tokenKey)) {
+        mealCounts[order.mealName] = (mealCounts[order.mealName] || 0) + 1;
+      }
+    });
+
+    res.json({ 
+      total, 
+      paid, 
+      unpaid, 
+      meals: mealCounts, 
+      verified: verifiedCount 
+    });
+  } catch (err) {
+    console.error("Error fetching producer stats:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Serve HTML files
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
