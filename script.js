@@ -1,4 +1,4 @@
-// Updated script.js with Cart System and Weekly Meal Planning - FIXED
+// Updated script.js with Calendar System and Token Management
 const userEmail = localStorage.getItem('messmate_user_email');
 const userName = localStorage.getItem('messmate_user_name') || '';
 let profileComplete = localStorage.getItem('messmate_profile_complete') === 'true';
@@ -8,8 +8,156 @@ let spendingChart = null, foodChart = null;
 let cameraStream = null;
 let cart = JSON.parse(localStorage.getItem('messmate_cart') || '[]');
 let currentSelectedMeal = null;
+let currentCalendarDate = new Date();
+let selectedDates = new Map(); // Map of date string -> batch number
+let userTokens = [];
 
 if (!userEmail) window.location.href = '/';
+
+// Calendar Functions
+function renderCalendar() {
+  const year = currentCalendarDate.getFullYear();
+  const month = currentCalendarDate.getMonth();
+  
+  // Update header
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+  document.getElementById('currentMonth').textContent = `${monthNames[month]} ${year}`;
+  
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const calendarGrid = document.getElementById('calendarGrid');
+  calendarGrid.innerHTML = '';
+  
+  // Add day names
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  dayNames.forEach(name => {
+    const dayHeader = document.createElement('div');
+    dayHeader.className = 'text-center font-bold text-slate-400 text-xs py-2';
+    dayHeader.textContent = name;
+    calendarGrid.appendChild(dayHeader);
+  });
+  
+  // Add empty cells for days before month starts
+  const startDay = firstDay.getDay();
+  for (let i = 0; i < startDay; i++) {
+    const emptyCell = document.createElement('div');
+    calendarGrid.appendChild(emptyCell);
+  }
+  
+  // Add days of the month
+  for (let day = 1; day <= lastDay.getDate(); day++) {
+    const currentDate = new Date(year, month, day);
+    const dateString = currentDate.toISOString().split('T')[0];
+    
+    const dayCell = document.createElement('div');
+    dayCell.className = 'calendar-day';
+    
+    // Check if date is in the past (disable it)
+    if (currentDate < today) {
+      dayCell.classList.add('disabled');
+    }
+    
+    // Check if it's today
+    if (currentDate.toDateString() === today.toDateString()) {
+      dayCell.classList.add('today');
+    }
+    
+    // Check if date is selected
+    if (selectedDates.has(dateString)) {
+      dayCell.classList.add('selected');
+    }
+    
+    dayCell.innerHTML = `
+      <span class="day-number">${day}</span>
+      <span class="day-name">${dayNames[currentDate.getDay()]}</span>
+    `;
+    
+    if (currentDate >= today) {
+      dayCell.addEventListener('click', () => toggleDateSelection(dateString, dayCell));
+    }
+    
+    calendarGrid.appendChild(dayCell);
+  }
+  
+  updateSelectedDaysSummary();
+}
+
+function toggleDateSelection(dateString, dayCell) {
+  if (selectedDates.has(dateString)) {
+    selectedDates.delete(dateString);
+    dayCell.classList.remove('selected');
+  } else {
+    selectedDates.set(dateString, 1); // Default to Batch 1
+    dayCell.classList.add('selected');
+  }
+  
+  // Show/hide batch selection
+  if (selectedDates.size > 0) {
+    document.getElementById('batchSelectionContainer').classList.remove('hidden');
+  } else {
+    document.getElementById('batchSelectionContainer').classList.add('hidden');
+  }
+  
+  updateSelectedDaysSummary();
+}
+
+function updateSelectedDaysSummary() {
+  const summary = document.getElementById('selectedDaysSummary');
+  
+  if (selectedDates.size === 0) {
+    summary.innerHTML = 'No days selected yet';
+    return;
+  }
+  
+  const selectedBatch = document.querySelector('input[name="batch-time"]:checked');
+  const batchText = selectedBatch ? 
+    (selectedBatch.value === '1' ? 'Batch 1 (12:30-1:00 PM)' : 'Batch 2 (1:00-2:00 PM)') : 
+    'No batch selected';
+  
+  const dates = Array.from(selectedDates.keys()).sort();
+  const datesList = dates.map(date => {
+    const d = new Date(date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }).join(', ');
+  
+  summary.innerHTML = `
+    <div class="mb-2"><strong>${selectedDates.size}</strong> day(s) selected</div>
+    <div class="text-xs text-slate-400 mb-2">${datesList}</div>
+    <div class="text-sm text-indigo-300 font-semibold">${batchText}</div>
+  `;
+}
+
+// Update batch for all selected dates when batch changes
+document.querySelectorAll('input[name="batch-time"]').forEach(radio => {
+  radio.addEventListener('change', function() {
+    const batch = parseInt(this.value);
+    selectedDates.forEach((value, key) => {
+      selectedDates.set(key, batch);
+    });
+    updateSelectedDaysSummary();
+    
+    // Update visual feedback
+    document.querySelectorAll('.batch-option').forEach(option => {
+      option.classList.remove('selected');
+    });
+    this.closest('.batch-option').classList.add('selected');
+  });
+});
+
+// Month navigation
+document.getElementById('prevMonth').addEventListener('click', () => {
+  currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+  renderCalendar();
+});
+
+document.getElementById('nextMonth').addEventListener('click', () => {
+  currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+  renderCalendar();
+});
 
 // Cart Management Functions
 function updateCartBadge() {
@@ -35,7 +183,7 @@ function addToCart(meal, selectedDays) {
   if (existingIndex >= 0) {
     const existing = cart[existingIndex];
     selectedDays.forEach(newDay => {
-      const dayExists = existing.days.find(d => d.day === newDay.day);
+      const dayExists = existing.days.find(d => d.date === newDay.date);
       if (!dayExists) {
         existing.days.push(newDay);
       } else {
@@ -56,11 +204,11 @@ function addToCart(meal, selectedDays) {
   showToast('Added to cart successfully!', 'success');
 }
 
-function removeFromCart(mealId, day = null) {
-  if (day) {
+function removeFromCart(mealId, date = null) {
+  if (date) {
     const item = cart.find(item => item.mealId === mealId);
     if (item) {
-      item.days = item.days.filter(d => d.day !== day);
+      item.days = item.days.filter(d => d.date !== date);
       if (item.days.length === 0) {
         cart = cart.filter(item => item.mealId !== mealId);
       }
@@ -119,17 +267,22 @@ function renderCart() {
             
             <div class="space-y-2">
               <p class="text-sm text-slate-300 font-semibold mb-2">
-                <i class="fas fa-calendar-check mr-2"></i> Selected Days:
+                <i class="fas fa-calendar-check mr-2"></i> Selected Dates:
               </p>
               <div class="flex flex-wrap gap-2">
-                ${item.days.map(d => `
-                  <div class="bg-slate-600/50 px-3 py-1 rounded-lg text-sm flex items-center gap-2">
-                    <span class="capitalize">${d.day} (Batch ${d.batch})</span>
-                    <button onclick="removeFromCart('${item.mealId}', '${d.day}')" class="text-red-400 hover:text-red-300 ml-1">
-                      <i class="fas fa-times"></i>
-                    </button>
-                  </div>
-                `).join('')}
+                ${item.days.map(d => {
+                  const date = new Date(d.date + 'T00:00:00');
+                  const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  const batchTime = d.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM';
+                  return `
+                    <div class="bg-slate-600/50 px-3 py-1 rounded-lg text-sm flex items-center gap-2">
+                      <span>${dateStr} (Batch ${d.batch}: ${batchTime})</span>
+                      <button onclick="removeFromCart('${item.mealId}', '${d.date}')" class="text-red-400 hover:text-red-300 ml-1">
+                        <i class="fas fa-times"></i>
+                      </button>
+                    </div>
+                  `;
+                }).join('')}
               </div>
             </div>
           </div>
@@ -152,6 +305,8 @@ function renderCart() {
 
 function openAddToCartModal(meal) {
   currentSelectedMeal = meal;
+  selectedDates.clear();
+  currentCalendarDate = new Date();
   
   const mealInfo = document.getElementById('selectedMealInfo');
   mealInfo.innerHTML = `
@@ -170,83 +325,64 @@ function openAddToCartModal(meal) {
     </div>
   `;
   
-  document.querySelectorAll('.day-checkbox').forEach(cb => {
-    cb.checked = false;
-    const row = cb.closest('.day-row');
-    row.querySelector('.batch-selection').classList.add('hidden');
-  });
-  
+  // Pre-select dates if item is already in cart
   const existingCartItem = cart.find(item => item.mealId === meal._id);
   if (existingCartItem) {
     existingCartItem.days.forEach(dayInfo => {
-      const checkbox = document.querySelector(`.day-checkbox[data-day="${dayInfo.day}"]`);
-      if (checkbox) {
-        checkbox.checked = true;
-        const row = checkbox.closest('.day-row');
-        row.querySelector('.batch-selection').classList.remove('hidden');
-        const batchRadio = row.querySelector(`input[name="batch-${dayInfo.day}"][value="${dayInfo.batch}"]`);
-        if (batchRadio) batchRadio.checked = true;
-      }
+      selectedDates.set(dayInfo.date, dayInfo.batch);
     });
+    
+    // Set batch radio
+    if (existingCartItem.days.length > 0) {
+      const batch = existingCartItem.days[0].batch;
+      const radio = document.querySelector(`input[name="batch-time"][value="${batch}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.closest('.batch-option').classList.add('selected');
+      }
+    }
   }
   
+  renderCalendar();
+  document.getElementById('batchSelectionContainer').classList.add('hidden');
   document.getElementById('addToCartModal').classList.remove('hidden');
 }
-
-document.querySelectorAll('.day-checkbox').forEach(checkbox => {
-  checkbox.addEventListener('change', function() {
-    const row = this.closest('.day-row');
-    const batchSelection = row.querySelector('.batch-selection');
-    
-    if (this.checked) {
-      batchSelection.classList.remove('hidden');
-      const batchRadios = row.querySelectorAll('.batch-radio');
-      const anyChecked = Array.from(batchRadios).some(r => r.checked);
-      if (!anyChecked && batchRadios.length > 0) {
-        batchRadios[0].checked = true;
-      }
-    } else {
-      batchSelection.classList.add('hidden');
-    }
-  });
-});
 
 document.getElementById('addSelectedToCart').addEventListener('click', () => {
   if (!currentSelectedMeal) return;
   
-  const selectedDays = [];
-  
-  document.querySelectorAll('.day-checkbox:checked').forEach(checkbox => {
-    const day = checkbox.dataset.day;
-    const row = checkbox.closest('.day-row');
-    const selectedBatch = row.querySelector(`.batch-radio:checked`);
-    
-    if (selectedBatch) {
-      selectedDays.push({
-        day: day,
-        batch: selectedBatch.value
-      });
-    }
-  });
-  
-  if (selectedDays.length === 0) {
-    showToast('Please select at least one day', 'error');
+  if (selectedDates.size === 0) {
+    showToast('Please select at least one date', 'error');
     return;
   }
+  
+  const selectedBatch = document.querySelector('input[name="batch-time"]:checked');
+  if (!selectedBatch) {
+    showToast('Please select a batch time', 'error');
+    return;
+  }
+  
+  const selectedDays = Array.from(selectedDates.entries()).map(([date, batch]) => ({
+    date: date,
+    batch: parseInt(selectedBatch.value)
+  }));
   
   addToCart(currentSelectedMeal, selectedDays);
   document.getElementById('addToCartModal').classList.add('hidden');
   currentSelectedMeal = null;
+  selectedDates.clear();
 });
 
 document.getElementById('cancelAddToCart').addEventListener('click', () => {
   document.getElementById('addToCartModal').classList.add('hidden');
   currentSelectedMeal = null;
+  selectedDates.clear();
 });
 
 document.getElementById('closeAddToCart').addEventListener('click', () => {
   document.getElementById('addToCartModal').classList.add('hidden');
   currentSelectedMeal = null;
+  selectedDates.clear();
 });
 
 document.getElementById('cartBtn').addEventListener('click', () => {
@@ -271,7 +407,7 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
         mealId: item.mealId,
         mealName: item.mealName,
         price: item.price,
-        day: dayInfo.day,
+        date: dayInfo.date,
         batch: dayInfo.batch
       });
     });
@@ -294,14 +430,17 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
     const data = await response.json();
     
     if (data.success) {
-      const today = new Date().toDateString();
-      localStorage.setItem(`token_${today}_${userEmail}`, data.token);
-      localStorage.setItem(`tokenData_${today}_${userEmail}`, JSON.stringify(data.meals));
+      // Store tokens for each unique date
+      data.tokens.forEach(tokenData => {
+        localStorage.setItem(`token_${tokenData.date}_${userEmail}`, tokenData.token);
+        localStorage.setItem(`tokenData_${tokenData.date}_${userEmail}`, JSON.stringify(tokenData.meals));
+      });
       
       clearCart();
       document.getElementById('cartModal').classList.add('hidden');
-      showToast('✓ Order placed! Token generated. Please verify payment at Token Verification page.', 'success');
+      showToast(`✓ Order placed! ${data.tokens.length} token(s) generated.`, 'success');
       loadOrders();
+      loadUserTokens();
     } else {
       showToast(data.error || 'Checkout failed', 'error');
     }
@@ -313,6 +452,251 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
     btn.innerHTML = '<i class="fas fa-credit-card mr-2"></i> Proceed to Checkout';
   }
 });
+
+// Token Management
+async function loadUserTokens() {
+  try {
+    const res = await fetch(`/user-tokens/${userEmail}`);
+    const data = await res.json();
+    
+    if (data.success) {
+      userTokens = data.tokens || [];
+    }
+  } catch (err) {
+    console.error('Error loading tokens:', err);
+  }
+}
+
+document.getElementById('myTokensBtn').addEventListener('click', async () => {
+  await loadUserTokens();
+  renderTokensList();
+  document.getElementById('myTokensModal').classList.remove('hidden');
+});
+
+document.getElementById('closeMyTokens').addEventListener('click', () => {
+  document.getElementById('myTokensModal').classList.add('hidden');
+});
+
+function renderTokensList() {
+  const tokensList = document.getElementById('tokensList');
+  
+  if (userTokens.length === 0) {
+    tokensList.innerHTML = `
+      <div class="text-center py-16 text-slate-400">
+        <i class="fas fa-ticket-alt text-6xl mb-4 opacity-50"></i>
+        <p class="text-xl">No tokens yet</p>
+        <p class="text-sm mt-2">Order some meals to generate tokens!</p>
+      </div>
+    `;
+    return;
+  }
+  
+  // Group tokens by date
+  const tokensByDate = {};
+  userTokens.forEach(token => {
+    if (!tokensByDate[token.date]) {
+      tokensByDate[token.date] = [];
+    }
+    tokensByDate[token.date].push(token);
+  });
+  
+  const sortedDates = Object.keys(tokensByDate).sort((a, b) => new Date(b) - new Date(a));
+  
+  tokensList.innerHTML = sortedDates.map(date => {
+    const tokens = tokensByDate[date];
+    const dateObj = new Date(date + 'T00:00:00');
+    const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const isPast = dateObj < new Date(new Date().toDateString());
+    
+    return `
+      <div class="bg-slate-700/40 p-6 rounded-xl border border-slate-600/50">
+        <h4 class="text-xl font-bold mb-4 text-indigo-200">
+          <i class="fas fa-calendar-day mr-2"></i> ${dateStr}
+          ${isPast ? '<span class="text-xs text-slate-400 ml-2">(Past)</span>' : ''}
+        </h4>
+        <div class="space-y-3">
+          ${tokens.map(token => `
+            <div class="token-item flex justify-between items-center">
+              <div class="flex-1">
+                <div class="flex items-center gap-4 mb-2">
+                  <div class="text-3xl font-bold text-emerald-400">Token #${token.token}</div>
+                  <span class="text-sm px-3 py-1 rounded-full ${token.verified ? 'bg-green-600/30 text-green-300' : 'bg-yellow-600/30 text-yellow-300'}">
+                    ${token.verified ? '✓ Verified' : '⏳ Pending'}
+                  </span>
+                </div>
+                <div class="text-sm text-slate-300">
+                  Batch ${token.batch}: ${token.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}
+                </div>
+                <div class="text-xs text-slate-400 mt-2">
+                  ${token.meals.map(m => `${m.name} (Qty: ${m.quantity})`).join(', ')}
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-emerald-400 mb-2">₹${token.totalAmount}</div>
+                ${!token.verified && !isPast ? `
+                  <button onclick="editToken('${token._id}')" class="text-sm bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg transition">
+                    <i class="fas fa-edit mr-1"></i> Edit
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function editToken(tokenId) {
+  try {
+    const res = await fetch(`/token-details/${tokenId}`);
+    const data = await res.json();
+    
+    if (!data.success) {
+      showToast('Failed to load token details', 'error');
+      return;
+    }
+    
+    const token = data.token;
+    currentEditingToken = token;
+    
+    const editContent = document.getElementById('editTokenContent');
+    editContent.innerHTML = `
+      <div class="bg-indigo-900/30 border border-indigo-700/50 rounded-xl p-4 mb-6">
+        <div class="text-2xl font-bold text-center mb-2">Token #${token.token}</div>
+        <div class="text-center text-sm text-slate-300">
+          ${new Date(token.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        </div>
+        <div class="text-center text-xs text-slate-400 mt-1">
+          Batch ${token.batch}: ${token.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}
+        </div>
+      </div>
+      
+      <div class="space-y-4" id="tokenMealsEdit">
+        ${token.meals.map((meal, index) => `
+          <div class="bg-slate-700/40 p-4 rounded-xl flex justify-between items-center">
+            <div>
+              <div class="font-bold text-lg">${meal.name}</div>
+              <div class="text-sm text-slate-400">₹${meal.price} per meal</div>
+            </div>
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2">
+                <button onclick="decreaseQuantity(${index})" class="bg-red-600/70 hover:bg-red-600 w-8 h-8 rounded-lg">
+                  <i class="fas fa-minus"></i>
+                </button>
+                <span class="text-xl font-bold w-12 text-center" id="qty-${index}">${meal.quantity}</span>
+                <button onclick="increaseQuantity(${index})" class="bg-green-600/70 hover:bg-green-600 w-8 h-8 rounded-lg">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+              <button onclick="removeMeal(${index})" class="text-red-400 hover:text-red-300">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      
+      <div class="mt-6 bg-slate-700/40 p-4 rounded-xl">
+        <div class="flex justify-between items-center text-xl font-bold">
+          <span>Total Amount:</span>
+          <span id="editTokenTotal" class="text-emerald-400">₹${token.totalAmount}</span>
+        </div>
+      </div>
+    `;
+    
+    document.getElementById('myTokensModal').classList.add('hidden');
+    document.getElementById('editTokenModal').classList.remove('hidden');
+  } catch (err) {
+    console.error('Error editing token:', err);
+    showToast('Failed to load token for editing', 'error');
+  }
+}
+
+let currentEditingToken = null;
+
+window.increaseQuantity = function(index) {
+  currentEditingToken.meals[index].quantity++;
+  updateEditTokenDisplay();
+};
+
+window.decreaseQuantity = function(index) {
+  if (currentEditingToken.meals[index].quantity > 1) {
+    currentEditingToken.meals[index].quantity--;
+    updateEditTokenDisplay();
+  }
+};
+
+window.removeMeal = function(index) {
+  if (currentEditingToken.meals.length === 1) {
+    showToast('Cannot remove all meals. Delete the token instead.', 'error');
+    return;
+  }
+  currentEditingToken.meals.splice(index, 1);
+  editToken(currentEditingToken._id); // Re-render
+};
+
+function updateEditTokenDisplay() {
+  currentEditingToken.meals.forEach((meal, index) => {
+    const qtyElement = document.getElementById(`qty-${index}`);
+    if (qtyElement) {
+      qtyElement.textContent = meal.quantity;
+    }
+  });
+  
+  const total = currentEditingToken.meals.reduce((sum, meal) => sum + (meal.price * meal.quantity), 0);
+  document.getElementById('editTokenTotal').textContent = `₹${total}`;
+}
+
+document.getElementById('saveTokenChanges').addEventListener('click', async () => {
+  if (!currentEditingToken) return;
+  
+  const btn = document.getElementById('saveTokenChanges');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Saving...';
+  
+  try {
+    const response = await fetch(`/update-token/${currentEditingToken._id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        meals: currentEditingToken.meals
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      showToast('Token updated successfully!', 'success');
+      document.getElementById('editTokenModal').classList.add('hidden');
+      document.getElementById('myTokensModal').classList.remove('hidden');
+      await loadUserTokens();
+      renderTokensList();
+    } else {
+      showToast(data.error || 'Failed to update token', 'error');
+    }
+  } catch (err) {
+    console.error('Error updating token:', err);
+    showToast('Error updating token', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-save mr-2"></i> Save Changes';
+  }
+});
+
+document.getElementById('cancelEditToken').addEventListener('click', () => {
+  document.getElementById('editTokenModal').classList.add('hidden');
+  document.getElementById('myTokensModal').classList.remove('hidden');
+  currentEditingToken = null;
+});
+
+document.getElementById('closeEditToken').addEventListener('click', () => {
+  document.getElementById('editTokenModal').classList.add('hidden');
+  document.getElementById('myTokensModal').classList.remove('hidden');
+  currentEditingToken = null;
+});
+
+window.editToken = editToken;
 
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
@@ -502,8 +886,9 @@ document.getElementById('logout').addEventListener('click', () => {
 
 document.getElementById('tokenBtn').addEventListener('click', () => {
   const today = new Date().toDateString();
-  const token = localStorage.getItem(`token_${today}_${userEmail}`);
-  const meals = localStorage.getItem(`tokenData_${today}_${userEmail}`);
+  const todayISO = new Date().toISOString().split('T')[0];
+  const token = localStorage.getItem(`token_${todayISO}_${userEmail}`);
+  const meals = localStorage.getItem(`tokenData_${todayISO}_${userEmail}`);
 
   if (!token || !meals) {
     alert('❌ No active token for today. Please make a payment first!');
@@ -583,48 +968,66 @@ async function loadOrders() {
   const data = await res.json();
   if (data.success) {
     userOrders = data.orders || [];
-    const todayStr = new Date().toDateString();
-    const todayUnpaid = userOrders.filter(o => new Date(o.date).toDateString() === todayStr && !o.paid);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayUnpaid = userOrders.filter(o => {
+      const orderDate = new Date(o.date).toISOString().split('T')[0];
+      return orderDate === todayStr && !o.paid;
+    });
 
     let html = '';
 
-    html += userOrders.map(o => `
-      <div class="bg-slate-700/40 p-6 rounded-xl mb-4">
-        <div class="flex justify-between">
-          <div>
-            <p class="font-bold text-xl">${o.mealName}</p>
-            <p class="text-sm text-slate-300">${new Date(o.date).toLocaleString()}</p>
-            ${o.day ? `<p class="text-xs text-indigo-300 mt-1">Day: ${o.day} | Batch: ${o.batch}</p>` : ''}
-            <span class="text-${o.paid ? 'emerald' : 'red'}-400 text-sm">${o.paid ? 'Paid' : 'Unpaid'}</span>
+    html += userOrders.map(o => {
+      const orderDate = new Date(o.date);
+      const dateStr = o.orderDate || orderDate.toISOString().split('T')[0];
+      const displayDate = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      
+      return `
+        <div class="bg-slate-700/40 p-6 rounded-xl mb-4">
+          <div class="flex justify-between">
+            <div>
+              <p class="font-bold text-xl">${o.mealName}</p>
+              <p class="text-sm text-slate-300">${displayDate}</p>
+              ${o.batch ? `<p class="text-xs text-indigo-300 mt-1">Batch ${o.batch}: ${o.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}</p>` : ''}
+              <span class="text-${o.paid ? 'emerald' : 'red'}-400 text-sm">${o.paid ? 'Paid' : 'Unpaid'}</span>
+            </div>
+            <p class="text-xl font-bold text-emerald-400">₹${o.price}</p>
           </div>
-          <p class="text-xl font-bold text-emerald-400">₹${o.price}</p>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     document.getElementById('orders').innerHTML = html || '<p class="text-center text-slate-400">No orders yet</p>';
   }
 }
 
 function updateProfileModal() {
-  const todayStr = new Date().toDateString();
-  const todayUnpaid = userOrders.filter(o => new Date(o.date).toDateString() === todayStr && !o.paid);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayUnpaid = userOrders.filter(o => {
+    const orderDate = new Date(o.date).toISOString().split('T')[0];
+    return orderDate === todayStr && !o.paid;
+  });
   document.getElementById('unpaidCount').textContent = todayUnpaid.length;
   document.getElementById('score').textContent = -todayUnpaid.length;
 
   const profileOrdersEl = document.getElementById('profileOrders');
-  profileOrdersEl.innerHTML = userOrders.length > 0 ? userOrders.map(o => `
-    <div class="bg-slate-700/40 p-4 rounded-xl">
-      <div class="flex justify-between">
-        <div>
-          <p class="font-bold">${o.mealName}</p>
-          <p class="text-sm text-slate-300">${new Date(o.date).toLocaleString()}</p>
-          ${o.day ? `<p class="text-xs text-indigo-300">Day: ${o.day} | Batch: ${o.batch}</p>` : ''}
+  profileOrdersEl.innerHTML = userOrders.length > 0 ? userOrders.map(o => {
+    const orderDate = new Date(o.date);
+    const dateStr = o.orderDate || orderDate.toISOString().split('T')[0];
+    const displayDate = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    
+    return `
+      <div class="bg-slate-700/40 p-4 rounded-xl">
+        <div class="flex justify-between">
+          <div>
+            <p class="font-bold">${o.mealName}</p>
+            <p class="text-sm text-slate-300">${displayDate}</p>
+            ${o.batch ? `<p class="text-xs text-indigo-300">Batch ${o.batch}: ${o.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}</p>` : ''}
+          </div>
+          <p class="font-bold text-emerald-400">₹${o.price}</p>
         </div>
-        <p class="font-bold text-emerald-400">₹${o.price}</p>
       </div>
-    </div>
-  `).join('') : '<p class="text-center text-slate-400">No orders yet</p>';
+    `;
+  }).join('') : '<p class="text-center text-slate-400">No orders yet</p>';
 
   updateSpendingChart();
   updateFoodChart();
@@ -777,6 +1180,7 @@ window.removeFromCart = removeFromCart;
 checkProfile();
 loadMeals();
 loadOrders();
+loadUserTokens();
 updateCartBadge();
 
 // ============================================================================
@@ -892,4 +1296,4 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-console.log('✅ MessMate dashboard loaded with notifications');
+console.log('✅ MessMate dashboard loaded with calendar and token management');
