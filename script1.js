@@ -1,6 +1,6 @@
-// producer-dashboard-merged.js - Enhanced with Food Images & Batch-Based Counting
+//producer-dashboard-merged.js - Combined Producer Dashboard & Token Verification
 const userEmail = localStorage.getItem('messmate_user_email');
-const userRole = localStorage.getItem('messmate_user_role') || 'producer');
+const userRole = localStorage.getItem('messmate_user_role') || 'producer';
 const userName = localStorage.getItem('messmate_user_name') || '';
 
 if (!userEmail || userRole !== 'producer') {
@@ -11,7 +11,6 @@ let eventSource = null;
 let notificationEventSource = null;
 let currentToken = null;
 let paymentCheckInterval = null;
-let mealsCache = {};
 
 let notificationStats = {
   subscribedStudents: 0,
@@ -26,23 +25,6 @@ let notificationStats = {
 };
 
 document.getElementById('producer-welcome').textContent = `Logged in as: ${userName || userEmail}`;
-
-// Load meals for caching images
-async function loadMeals() {
-  try {
-    const res = await fetch('/meals');
-    const meals = await res.json();
-    meals.forEach(meal => {
-      mealsCache[meal.name] = meal.image || null;
-    });
-  } catch (err) {
-    console.error('Error loading meals:', err);
-  }
-}
-
-function getMealImage(mealName) {
-  return mealsCache[mealName] || 'https://via.placeholder.com/80/667eea/ffffff?text=🍽️';
-}
 
 // ==================== NOTIFICATION SYSTEM ====================
 
@@ -401,7 +383,7 @@ function showNotificationToast(message, type = 'info') {
 async function loadStats() {
   try {
     const period = document.getElementById('periodSelect').value;
-    const res = await fetch(`/producer/stats-batch?period=${period}`);
+    const res = await fetch(`/producer/stats?period=${period}`);
     const data = await res.json();
 
     document.getElementById('totalOrders').textContent = data.total || 0;
@@ -418,22 +400,19 @@ async function loadStats() {
       return;
     }
 
-    mealTypesDiv.innerHTML = mealEntries.map(([name, count]) => {
-      const mealImage = getMealImage(name);
-      return `
-      <div class="bg-gradient-to-br from-slate-700/60 to-slate-800/60 backdrop-blur-sm p-3 sm:p-4 rounded-xl border border-slate-600/40 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
-        <div class="flex items-center gap-3">
-          <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden flex-shrink-0 border-2 border-indigo-500/50 bg-slate-800">
-            <img src="${mealImage}" alt="${name}" class="w-full h-full object-cover" onerror="this.src='https://via.placeholder.com/80/667eea/ffffff?text=🍽️'">
-          </div>
+    mealTypesDiv.innerHTML = mealEntries.map(([name, count]) => `
+      <div class="bg-gradient-to-br from-slate-700/60 to-slate-800/60 backdrop-blur-sm p-4 sm:p-6 rounded-xl border border-slate-600/40 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
+        <div class="flex items-center justify-between">
           <div class="flex-1 min-w-0">
             <p class="text-slate-300 text-xs sm:text-sm font-medium mb-1 truncate">${name}</p>
-            <p class="text-xl sm:text-2xl font-bold text-white">${count}</p>
+            <p class="text-2xl sm:text-3xl font-bold text-white">${count}</p>
+          </div>
+          <div class="w-10 h-10 sm:w-14 sm:h-14 bg-indigo-500/20 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+            <i class="fas fa-utensils text-lg sm:text-2xl text-indigo-300"></i>
           </div>
         </div>
       </div>
-    `;
-    }).join('');
+    `).join('');
   } catch (err) {
     console.error('Error loading stats:', err);
   }
@@ -493,23 +472,22 @@ async function fetchTokenDetails(token) {
 }
 
 function displayTokenDetails(data) {
-  // Display customer photo - LARGER SIZE
+  // Display customer photo
   const customerPhoto = document.getElementById('customerPhoto');
   if (data.userPhoto) {
     customerPhoto.src = data.userPhoto;
   } else {
-    customerPhoto.src = 'https://via.placeholder.com/200/667eea/ffffff?text=' + (data.userName ? data.userName.charAt(0).toUpperCase() : 'U');
+    customerPhoto.src = 'https://via.placeholder.com/80/667eea/ffffff?text=' + (data.userName ? data.userName.charAt(0).toUpperCase() : 'U');
   }
 
-  // User details - SMALLER TEXT
+  // User details
   document.getElementById('userName').textContent = data.userName || 'Unknown User';
   document.getElementById('userEmail').textContent = data.userEmail;
   document.getElementById('tokenNumber').textContent = `#${data.token}`;
-  document.getElementById('batchNumber').textContent = `Batch ${data.batch}`;
   document.getElementById('tokenDate').textContent = new Date(data.date).toLocaleDateString('en-IN', {
-    weekday: 'short',
+    weekday: 'long',
     year: 'numeric',
-    month: 'short',
+    month: 'long',
     day: 'numeric'
   });
 
@@ -753,7 +731,6 @@ setInterval(() => {
 
 // ==================== INITIALIZE ====================
 
-loadMeals();
 loadStats();
 connectToRatingsSSE();
 initNotificationSystem();
