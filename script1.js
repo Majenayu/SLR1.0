@@ -7,7 +7,6 @@ if (!userEmail || userRole !== 'producer') {
   window.location.href = '/';
 }
 
-let html5QrCode = null;
 let eventSource = null;
 let notificationEventSource = null;
 let currentToken = null;
@@ -654,130 +653,6 @@ function showSuccess(message) {
   }, 4000);
 }
 
-// ==================== QR SCANNER ====================
-
-document.getElementById('scanBtn').addEventListener('click', () => {
-  document.getElementById('scannerModal').classList.remove('hidden');
-  startScanner();
-});
-
-document.getElementById('closeScanner').addEventListener('click', () => {
-  stopScanner();
-  document.getElementById('scannerModal').classList.add('hidden');
-});
-
-function startScanner() {
-  if (!html5QrCode) {
-    html5QrCode = new Html5Qrcode("reader");
-  }
-
-  html5QrCode.start(
-    { facingMode: "environment" },
-    { fps: 10, qrbox: 250 },
-    onScanSuccess,
-    onScanError
-  ).catch(err => {
-    console.error('Scanner start error:', err);
-  });
-}
-
-function stopScanner() {
-  if (html5QrCode && html5QrCode.isScanning) {
-    html5QrCode.stop().catch(err => console.error('Scanner stop error:', err));
-  }
-}
-
-async function onScanSuccess(decodedText) {
-  try {
-    const data = JSON.parse(decodedText);
-    stopScanner();
-    document.getElementById('scannerModal').classList.add('hidden');
-    showVerificationModal(data);
-  } catch (err) {
-    console.error('QR parse error:', err);
-  }
-}
-
-function onScanError(error) {
-  // Ignore scan errors
-}
-
-async function showVerificationModal(data) {
-  const verifyContent = document.getElementById('verifyContent');
-  
-  verifyContent.innerHTML = `
-    <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl border border-slate-600/50 mb-4 sm:mb-6">
-      <h4 class="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4 flex items-center gap-2">
-        <i class="fas fa-user-circle"></i> Student Information
-      </h4>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-        <div>
-          <p class="text-slate-400 text-xs sm:text-sm mb-1">Name</p>
-          <p class="text-white font-semibold text-sm sm:text-base">${data.userName || 'Unknown'}</p>
-        </div>
-        <div>
-          <p class="text-slate-400 text-xs sm:text-sm mb-1">Email</p>
-          <p class="text-white font-semibold text-xs sm:text-sm break-all">${data.userEmail}</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="bg-slate-700/40 p-4 sm:p-6 rounded-xl border border-slate-600/50">
-      <h4 class="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4 flex items-center gap-2">
-        <i class="fas fa-shopping-cart"></i> Orders
-      </h4>
-      <div class="space-y-2 sm:space-y-3">
-        ${data.meals.map(meal => `
-          <div class="flex justify-between items-center bg-slate-800/50 p-3 sm:p-4 rounded-lg">
-            <div>
-              <p class="text-white font-semibold text-sm sm:text-base">${meal.name}</p>
-              <p class="text-slate-400 text-xs sm:text-sm">Qty: ${meal.quantity}</p>
-            </div>
-            <p class="text-emerald-400 font-bold text-base sm:text-lg">₹${meal.totalPrice}</p>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
-
-  document.getElementById('verifyModal').classList.remove('hidden');
-
-  document.getElementById('doneVerify').onclick = async () => {
-    try {
-      const res = await fetch('/verify-qr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userEmail: data.userEmail,
-          date: data.date
-        })
-      });
-
-      const result = await res.json();
-
-      if (result.success) {
-        showNotificationToast('✅ Order verified successfully!', 'success');
-        document.getElementById('verifyModal').classList.add('hidden');
-        loadStats();
-        loadNotificationStats();
-      } else {
-        showNotificationToast('❌ Verification failed', 'error');
-      }
-    } catch (err) {
-      console.error('Verification error:', err);
-      showNotificationToast('❌ Error during verification', 'error');
-    }
-  };
-}
-
-document.getElementById('closeVerify').addEventListener('click', () => {
-  document.getElementById('verifyModal').classList.add('hidden');
-});
-
-document.getElementById('cancelVerify').addEventListener('click', () => {
-  document.getElementById('verifyModal').classList.add('hidden');
-});
-
 // ==================== LIVE RATINGS SSE ====================
 
 function connectToRatingsSSE() {
@@ -837,7 +712,6 @@ document.getElementById('logout').addEventListener('click', () => {
   if (confirm('Are you sure you want to logout?')) {
     if (eventSource) eventSource.close();
     if (notificationEventSource) notificationEventSource.close();
-    stopScanner();
     stopPaymentPolling();
     localStorage.clear();
     window.location.href = '/';
@@ -847,7 +721,6 @@ document.getElementById('logout').addEventListener('click', () => {
 window.addEventListener('beforeunload', () => {
   if (eventSource) eventSource.close();
   if (notificationEventSource) notificationEventSource.close();
-  stopScanner();
   stopPaymentPolling();
 });
 
