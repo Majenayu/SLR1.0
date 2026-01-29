@@ -2,40 +2,103 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>MessMate - Login or Register</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>MessMate - Login</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
-    .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-    .glass-effect { background: rgba(255,255,255,0.08); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.12); }
-    .fade-in { animation: fadeIn 0.6s ease-out; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    .slide-in { animation: slideIn 0.4s ease-out; }
-    @keyframes slideIn { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    .pulse-button { transition: all 0.25s ease; }
-    .pulse-button:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(0,0,0,0.18); }
+    .gradient-bg { 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
+    }
+    .glass-effect { 
+      background: rgba(255,255,255,0.08); 
+      backdrop-filter: blur(10px); 
+      border: 1px solid rgba(255,255,255,0.12); 
+    }
+    .fade-in { 
+      animation: fadeIn 0.6s ease-out; 
+    }
+    @keyframes fadeIn { 
+      from { opacity: 0; transform: translateY(20px); } 
+      to { opacity: 1; transform: translateY(0); } 
+    }
+    .pulse-button { 
+      transition: all 0.25s ease; 
+    }
+    .pulse-button:hover { 
+      transform: translateY(-2px); 
+      box-shadow: 0 10px 25px rgba(0,0,0,0.18); 
+    }
+    .pulse-button:active {
+      transform: translateY(0);
+    }
+    
+    /* Mobile optimizations */
+    @media (max-width: 640px) {
+      .glass-effect {
+        border-radius: 1rem;
+        padding: 1.5rem !important;
+      }
+      h1 {
+        font-size: 1.875rem !important;
+      }
+      h2 {
+        font-size: 1.25rem !important;
+      }
+    }
+    
+    /* iOS Safari fixes */
+    html {
+      height: -webkit-fill-available;
+    }
+    body {
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
+    }
+    
+    /* Input styling for better mobile experience */
+    input {
+      font-size: 16px !important; /* Prevents zoom on iOS */
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    
+    input:focus {
+      outline: none;
+      border-color: rgba(147, 197, 253, 0.5);
+      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.1);
+    }
+    
+    /* Better touch targets for mobile */
+    button, input {
+      touch-action: manipulation;
+    }
   </style>
 </head>
-<body class="gradient-bg min-h-screen flex items-center justify-center px-4">
+<body class="gradient-bg flex items-center justify-center p-4">
 
   <div class="w-full max-w-md fade-in">
-    <div class="text-center mb-8">
-      <div class="inline-block p-4 rounded-full glass-effect mb-4">
-        <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <!-- Logo and Title -->
+    <div class="text-center mb-6 sm:mb-8">
+      <div class="inline-block p-3 sm:p-4 rounded-full glass-effect mb-3 sm:mb-4">
+        <svg class="w-10 h-10 sm:w-12 sm:h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 9.172V5L8 4z"></path>
         </svg>
       </div>
-      <h1 class="text-4xl font-bold text-white mb-2">Welcome to MessMate</h1>
-      <p class="text-white/70">Your mess management journey begins here</p>
+      <h1 class="text-3xl sm:text-4xl font-bold text-white mb-2">Welcome to MessMate</h1>
+      <p class="text-sm sm:text-base text-white/70">Your mess management journey begins here</p>
     </div>
 
-    <div class="glass-effect rounded-2xl p-8 shadow-2xl">
+    <!-- Login Card -->
+    <div class="glass-effect rounded-2xl p-6 sm:p-8 shadow-2xl">
+      
       <!-- Google Sign-In Section -->
       <div id="google-signin-section" class="mb-6">
         <div class="text-center mb-4">
-          <h2 class="text-xl font-bold text-white mb-2">Sign in with Google</h2>
-          <p class="text-white/60 text-sm mb-4">Use your @vvce.ac.in account</p>
+          <h2 class="text-lg sm:text-xl font-bold text-white mb-2">Sign in with Google</h2>
+          <p class="text-xs sm:text-sm text-white/60 mb-4">Use your @vvce.ac.in account</p>
         </div>
         
         <div id="g_id_onload"
@@ -48,78 +111,65 @@
              data-shape="pill" 
              data-theme="filled_blue"
              data-size="large"
-             data-width="300">
+             data-width="280">
         </div>
         
-        <div class="flex items-center my-6">
+        <div class="flex items-center my-5 sm:my-6">
           <div class="flex-1 border-t border-white/20"></div>
-          <span class="px-4 text-white/50 text-sm">OR</span>
+          <span class="px-3 sm:px-4 text-white/50 text-xs sm:text-sm">OR</span>
           <div class="flex-1 border-t border-white/20"></div>
         </div>
       </div>
 
-      <!-- Login -->
-      <div id="login-form" class="space-y-6">
-        <div class="text-center mb-6">
-          <h2 class="text-2xl font-bold text-white mb-2">Email Login</h2>
+      <!-- Email Login Form -->
+      <div id="login-form" class="space-y-5">
+        <div class="text-center mb-4 sm:mb-6">
+          <h2 class="text-xl sm:text-2xl font-bold text-white mb-2">Email Login</h2>
         </div>
-        <form id="login-form-submit" class="space-y-5">
+        
+        <form id="login-form-submit" class="space-y-4 sm:space-y-5">
           <div>
-            <label class="block text-white/90">Email</label>
-            <input id="login-email" type="email" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white" placeholder="Enter your email" required>
+            <label class="block text-sm sm:text-base text-white/90 mb-2">Email</label>
+            <input 
+              id="login-email" 
+              type="email" 
+              class="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50" 
+              placeholder="Enter your email" 
+              required
+              autocomplete="email"
+            >
           </div>
+          
           <div>
-            <label class="block text-white/90">Password</label>
-            <input id="login-password" type="password" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white" placeholder="Enter your password" required>
+            <label class="block text-sm sm:text-base text-white/90 mb-2">Password</label>
+            <input 
+              id="login-password" 
+              type="password" 
+              class="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50" 
+              placeholder="Enter your password" 
+              required
+              autocomplete="current-password"
+            >
           </div>
-          <button type="submit" class="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl pulse-button">Login</button>
+          
+          <button 
+            type="submit" 
+            class="w-full py-2.5 sm:py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm sm:text-base font-semibold rounded-xl pulse-button"
+          >
+            Login
+          </button>
         </form>
 
-        <div class="text-center mt-4">
-          <span class="text-white/70">Don't have an account?</span>
-          <button id="show-register" class="text-blue-300 ml-2 font-semibold">Register</button>
-        </div>
-        <p id="login-error" class="mt-3 text-center text-red-300 hidden bg-red-500/10 p-2 rounded-lg"></p>
+        <!-- Error Message -->
+        <p id="login-error" class="mt-3 text-center text-sm text-red-300 hidden bg-red-500/10 p-2 sm:p-3 rounded-lg"></p>
       </div>
-
-      <!-- Register -->
-      <div id="register-form" class="space-y-6 hidden">
-        <div class="text-center mb-6">
-          <h2 class="text-2xl font-bold text-white mb-2">Register</h2>
-        </div>
-        <form id="register-form-submit" class="space-y-5">
-          <div>
-            <label class="block text-white/90">Name</label>
-            <input id="register-name" type="text" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white" placeholder="Enter your name" required>
-          </div>
-          <div>
-            <label class="block text-white/90">Email</label>
-            <input id="register-email" type="email" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white" placeholder="Enter your email" required>
-          </div>
-          <div>
-            <label class="block text-white/90">Password</label>
-            <input id="register-password" type="password" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white" placeholder="Create a password" required>
-          </div>
-          <div>
-            <label class="block text-white/90">Confirm Password</label>
-            <input id="register-confirm-password" type="password" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white" placeholder="Confirm password" required>
-          </div>
-          <div>
-            <label class="block text-white/90">Role</label>
-            <select id="register-role" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white">
-              <option value="student" selected>Student</option>
-              <option value="producer">Producer</option>
-            </select>
-          </div>
-          <button type="submit" class="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl pulse-button">Register</button>
-        </form>
-
-        <div class="text-center mt-4">
-          <span class="text-white/70">Already have an account?</span>
-          <button id="show-login" class="text-purple-300 ml-2 font-semibold">Login</button>
-        </div>
-        <p id="register-error" class="mt-3 text-center text-red-300 hidden bg-red-500/10 p-2 rounded-lg"></p>
-      </div>
+    </div>
+    
+    <!-- Footer Note -->
+    <div class="text-center mt-4 sm:mt-6">
+      <p class="text-xs sm:text-sm text-white/50">
+        Need an account? Contact your administrator
+      </p>
     </div>
   </div>
 
@@ -139,54 +189,47 @@
         localStorage.setItem('messmate_user_role', data.role);
         localStorage.setItem('messmate_user_name', data.name);
         
-        if (data.role === 'student') window.location.href = '/dashboard';
-        else if (data.role === 'producer') window.location.href = '/dashboard1';
-        else window.location.href = '/dashboard';
+        if (data.role === 'student') {
+          window.location.href = '/dashboard';
+        } else if (data.role === 'producer') {
+          window.location.href = '/dashboard1';
+        } else {
+          window.location.href = '/dashboard';
+        }
       } else {
-        showError('login-error', data.error || 'Authentication failed');
+        showError(data.error || 'Authentication failed');
       }
     } catch (err) {
-      showError('login-error', 'Authentication failed. Please try again.');
+      console.error('Auth error:', err);
+      showError('Authentication failed. Please try again.');
     }
   }
 
-  // Form toggles
-  function toggleForm(showRegister) {
-    const loginForm = document.getElementById('login-form');
-    const registerForm = document.getElementById('register-form');
-    const googleSection = document.getElementById('google-signin-section');
-    
-    if (showRegister) {
-      loginForm.classList.add('hidden');
-      googleSection.classList.add('hidden');
-      registerForm.classList.remove('hidden');
-      registerForm.classList.add('slide-in');
-      document.getElementById('login-error').classList.add('hidden');
-    } else {
-      registerForm.classList.add('hidden');
-      loginForm.classList.remove('hidden');
-      googleSection.classList.remove('hidden');
-      loginForm.classList.add('slide-in');
-      document.getElementById('register-error').classList.add('hidden');
-    }
-  }
-  
-  document.getElementById('show-register').addEventListener('click', () => toggleForm(true));
-  document.getElementById('show-login').addEventListener('click', () => toggleForm(false));
-
-  function showError(elementId, message) {
-    const err = document.getElementById(elementId);
+  function showError(message) {
+    const err = document.getElementById('login-error');
     err.textContent = message;
     err.classList.remove('hidden');
+    
+    // Auto-hide error after 5 seconds
+    setTimeout(() => {
+      err.classList.add('hidden');
+    }, 5000);
   }
 
-  // LOGIN
+  // Email Login
   document.getElementById('login-form-submit').addEventListener('submit', async (e) => {
     e.preventDefault();
+    
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
     const err = document.getElementById('login-error');
     err.classList.add('hidden');
+
+    // Show loading state
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Logging in...';
+    submitBtn.disabled = true;
 
     try {
       const response = await fetch('/login', {
@@ -194,60 +237,37 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ email, password })
       });
+      
       const data = await response.json();
+      
       if (data.success) {
         localStorage.setItem('messmate_user_email', data.email);
         localStorage.setItem('messmate_user_role', data.role);
         localStorage.setItem('messmate_user_name', data.name || '');
         
-        if (data.role === 'student') window.location.href = '/dashboard';
-        else if (data.role === 'producer') window.location.href = '/dashboard1';
-        else window.location.href = '/dashboard';
+        if (data.role === 'student') {
+          window.location.href = '/dashboard';
+        } else if (data.role === 'producer') {
+          window.location.href = '/dashboard1';
+        } else {
+          window.location.href = '/dashboard';
+        }
       } else {
-        showError('login-error', data.error || 'Invalid email or password');
+        showError(data.error || 'Invalid email or password');
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
       }
     } catch (errFetch) {
-      showError('login-error', 'Login failed. Try again.');
+      console.error('Login error:', errFetch);
+      showError('Login failed. Please try again.');
+      submitBtn.textContent = originalText;
+      submitBtn.disabled = false;
     }
   });
 
-  // REGISTER
-  document.getElementById('register-form-submit').addEventListener('submit', async (e) => {
+  // Prevent iOS zoom on input focus
+  document.addEventListener('gesturestart', function(e) {
     e.preventDefault();
-    const name = document.getElementById('register-name').value.trim();
-    const email = document.getElementById('register-email').value.trim();
-    const password = document.getElementById('register-password').value;
-    const confirm = document.getElementById('register-confirm-password').value;
-    const role = document.getElementById('register-role').value;
-    const err = document.getElementById('register-error');
-    err.classList.add('hidden');
-
-    if (password !== confirm) {
-      showError('register-error', 'Passwords do not match');
-      return;
-    }
-
-    try {
-      const response = await fetch('/register', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ name, email, password, role })
-      });
-      const data = await response.json();
-      if (data.success) {
-        localStorage.setItem('messmate_user_email', data.email || email);
-        localStorage.setItem('messmate_user_role', data.role || role);
-        localStorage.setItem('messmate_user_name', data.name || name);
-        
-        if (data.role === 'student' || role === 'student') window.location.href = '/dashboard';
-        else window.location.href = '/dashboard1';
-      } else {
-        const msg = data.error === 'duplicate' ? 'Email already registered' : (data.error || 'Registration failed');
-        showError('register-error', msg);
-      }
-    } catch (errFetch) {
-      showError('register-error', 'Registration failed. Try again.');
-    }
   });
 </script>
 </body>
