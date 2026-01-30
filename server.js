@@ -862,6 +862,9 @@ app.delete("/delete-meal/:id", async (req, res) => {
 // ==================== FIXED CHECKOUT ENDPOINT ====================
 // Replace the checkout endpoint in server.js (starting around line 610)
 
+// ==================== COMPLETE FIXED CHECKOUT ENDPOINT ====================
+// This is the complete working version with the todayDate scope fix
+
 app.post("/checkout", async (req, res) => {
   try {
     const { email, orders } = req.body;
@@ -899,14 +902,14 @@ app.post("/checkout", async (req, res) => {
 
     const tokens = [];
     const today = new Date().toISOString().split('T')[0];
+    // ✅ CRITICAL FIX: Define todayDate BEFORE the loop to avoid "not defined" error
+    const todayDate = new Date(today).toISOString().split('T')[0];
 
     for (const key in ordersByDateBatch) {
       const { date, batch, meals } = ordersByDateBatch[key];
       
-      // ✅ FIX: Normalize both dates to YYYY-MM-DD format for comparison
-      // This ensures TODAY orders get immediate tokens, not PENDING
+      // ✅ FIX: Normalize order date to YYYY-MM-DD format for comparison
       const orderDate = new Date(date).toISOString().split('T')[0];
-      const todayDate = new Date(today).toISOString().split('T')[0];
       const isToday = orderDate === todayDate;
       
       // Optional: Add debug logging
