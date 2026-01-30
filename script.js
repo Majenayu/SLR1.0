@@ -1,4 +1,4 @@
-// Updated script.js with proper token handling for today and scheduled tokens
+// Fixed script.js with proper token handling for today
 const userEmail = localStorage.getItem('messmate_user_email');
 const userName = localStorage.getItem('messmate_user_name') || '';
 let profileComplete = localStorage.getItem('messmate_profile_complete') === 'true';
@@ -433,8 +433,8 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
       const today = new Date().toISOString().split('T')[0];
       
       // Show success message with token info
-      const todayTokens = data.tokens.filter(t => t.date === today && t.token !== 'PENDING');
-      const futureTokens = data.tokens.filter(t => t.date !== today || t.token === 'PENDING');
+      const todayTokens = data.tokens.filter(t => t.date === today);
+      const futureTokens = data.tokens.filter(t => t.date !== today);
       
       let message = '';
       if (todayTokens.length > 0) {
@@ -443,14 +443,14 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
           message += `\n${futureTokens.length} future order(s) scheduled`;
         }
       } else {
-        message = `✓ ${futureTokens.length} order(s) scheduled\nTokens will be generated at 8 AM`;
+        message = `✓ ${futureTokens.length} order(s) scheduled`;
       }
       
       clearCart();
       document.getElementById('cartModal').classList.add('hidden');
       showToast(message, 'success');
       loadOrders();
-      loadUserTokens();
+      await loadUserTokens(); // Reload tokens immediately
     } else {
       showToast(data.error || 'Checkout failed', 'error');
     }
@@ -471,6 +471,7 @@ async function loadUserTokens() {
     
     if (data.success) {
       userTokens = data.tokens || [];
+      console.log('✅ Loaded tokens:', userTokens.length);
     }
   } catch (err) {
     console.error('Error loading tokens:', err);
@@ -531,19 +532,10 @@ function renderTokensList() {
             <div class="token-item flex justify-between items-center">
               <div class="flex-1">
                 <div class="flex items-center gap-4 mb-2">
-                  ${token.token === 'PENDING' ? `
-                    <div class="text-2xl font-bold text-yellow-400">
-                      <i class="fas fa-clock mr-2"></i>Token Pending
-                    </div>
-                    <span class="text-xs px-3 py-1 rounded-full bg-yellow-600/30 text-yellow-300">
-                      Will be generated at 8 AM
-                    </span>
-                  ` : `
-                    <div class="text-3xl font-bold text-emerald-400">Token #${token.token}</div>
-                    <span class="text-sm px-3 py-1 rounded-full ${token.verified ? 'bg-green-600/30 text-green-300' : 'bg-yellow-600/30 text-yellow-300'}">
-                      ${token.verified ? '✓ Verified' : '⏳ Pending'}
-                    </span>
-                  `}
+                  <div class="text-3xl font-bold text-emerald-400">Token #${token.token}</div>
+                  <span class="text-sm px-3 py-1 rounded-full ${token.verified ? 'bg-green-600/30 text-green-300' : 'bg-yellow-600/30 text-yellow-300'}">
+                    ${token.verified ? '✓ Verified' : '⏳ Pending'}
+                  </span>
                 </div>
                 <div class="text-sm text-slate-300">
                   Batch ${token.batch}: ${token.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}
@@ -554,7 +546,7 @@ function renderTokensList() {
               </div>
               <div class="text-right">
                 <div class="text-2xl font-bold text-emerald-400 mb-2">₹${token.totalAmount}</div>
-                ${!token.verified && !isPast && token.token !== 'PENDING' && isToday ? `
+                ${!token.verified && !isPast && isToday ? `
                   <button onclick="editToken('${token._id}')" class="text-sm bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg transition">
                     <i class="fas fa-edit mr-1"></i> Edit
                   </button>
@@ -719,28 +711,34 @@ document.getElementById('closeEditToken').addEventListener('click', () => {
 
 window.editToken = editToken;
 
-// Token Button - Show today's token
+// FIXED: Token Button - Show today's token properly
 document.getElementById('tokenBtn').addEventListener('click', async () => {
   const today = new Date().toISOString().split('T')[0];
+  
+  console.log('🔍 Looking for today\'s token. Today:', today);
   
   // Load latest tokens
   await loadUserTokens();
   
-  // Find today's tokens
-  const todayTokens = userTokens.filter(t => t.date === today);
+  console.log('📋 All user tokens:', userTokens);
+  
+  // Find today's tokens - FIXED: proper date comparison
+  const todayTokens = userTokens.filter(t => {
+    console.log(`Comparing token date "${t.date}" with today "${today}"`);
+    return t.date === today;
+  });
+  
+  console.log('✅ Today\'s tokens found:', todayTokens);
   
   if (todayTokens.length === 0) {
-    showToast('❌ No active token for today. Please make a payment first!', 'error');
+    showToast('❌ No token for today. Please place an order first!', 'error');
     return;
   }
   
-  // Show the first non-pending token
-  const activeToken = todayTokens.find(t => t.token !== 'PENDING');
+  // Show the first token (or you can show all tokens)
+  const activeToken = todayTokens[0];
   
-  if (!activeToken) {
-    showToast('⏰ Your token will be generated at 8:00 AM', 'info');
-    return;
-  }
+  console.log('🎫 Displaying token:', activeToken);
   
   // Display token
   document.getElementById('modalTokenNumber').textContent = activeToken.token;
@@ -1021,7 +1019,7 @@ async function loadOrders() {
               <p class="font-bold text-xl">${o.mealName}</p>
               <p class="text-sm text-slate-300">${displayDate}</p>
               ${o.batch ? `<p class="text-xs text-indigo-300 mt-1">Batch ${o.batch}: ${o.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}</p>` : ''}
-              ${o.token ? `<p class="text-xs text-emerald-300 mt-1">Token: ${o.token === 'PENDING' ? 'Will be generated at 8 AM' : '#' + o.token}</p>` : ''}
+              ${o.token ? `<p class="text-xs text-emerald-300 mt-1">Token: #${o.token}</p>` : ''}
               <span class="text-${o.paid ? 'emerald' : 'red'}-400 text-sm">${o.paid ? 'Paid' : 'Unpaid'}</span>
             </div>
             <p class="text-xl font-bold text-emerald-400">₹${o.price}</p>
@@ -1330,4 +1328,4 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-console.log('✅ MessMate dashboard loaded with calendar and token management');
+console.log('✅ MessMate dashboard loaded with FIXED token display logic');
