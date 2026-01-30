@@ -1,4 +1,4 @@
-// server.js - Fixed version with proper token indexing, notifications, and scheduled token generation
+// server.js - Fixed version with proper token generation for TODAY vs FUTURE dates
 const express = require("express");
 require("dotenv").config();
 const mongoose = require("mongoose");
@@ -859,7 +859,8 @@ app.delete("/delete-meal/:id", async (req, res) => {
   }
 });
 
-// Enhanced Checkout (Calendar-Based) - FIXED with proper token generation
+// ==================== CRITICAL FIX: CHECKOUT ENDPOINT ====================
+// Enhanced Checkout (Calendar-Based) - FIXED: Generate actual tokens for TODAY, PENDING for future
 app.post("/checkout", async (req, res) => {
   try {
     const { email, orders } = req.body;
@@ -906,22 +907,28 @@ app.post("/checkout", async (req, res) => {
       
       let tokenDoc = null;
       
-      if (isToday) {
-        // For today: Generate token immediately or update existing
-        tokenDoc = await Token.findOne({ date, batch, userEmail: email });
-        
-        if (!tokenDoc) {
-          // Create new token
-          const tokenCount = await Token.countDocuments({ date, batch });
+      // Check if token already exists
+      tokenDoc = await Token.findOne({ date, batch, userEmail: email });
+      
+      if (!tokenDoc) {
+        // Create new token
+        const mealArray = Object.entries(meals).map(([name, data]) => ({
+          name,
+          quantity: data.quantity,
+          price: data.price
+        }));
+
+        const totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
+
+        if (isToday) {
+          // ✅ FIX: For TODAY - Generate actual token number immediately
+          // Count existing tokens for today with this batch (exclude PENDING tokens)
+          const tokenCount = await Token.countDocuments({ 
+            date, 
+            batch,
+            token: { $ne: 'PENDING' }
+          });
           const newToken = (tokenCount + 1).toString();
-
-          const mealArray = Object.entries(meals).map(([name, data]) => ({
-            name,
-            quantity: data.quantity,
-            price: data.price
-          }));
-
-          const totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
 
           tokenDoc = new Token({
             token: newToken,
@@ -937,34 +944,11 @@ app.post("/checkout", async (req, res) => {
           });
 
           await tokenDoc.save();
+          console.log(`✅ Generated token #${newToken} for TODAY (${date}, Batch ${batch})`);
         } else {
-          // Update existing token for today
-          const mealArray = Object.entries(meals).map(([name, data]) => ({
-            name,
-            quantity: data.quantity,
-            price: data.price
-          }));
-
-          tokenDoc.meals = mealArray;
-          tokenDoc.totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
-          await tokenDoc.save();
-        }
-      } else {
-        // For future dates: Create placeholder (token will be generated at 8 AM)
-        // Check if already exists
-        tokenDoc = await Token.findOne({ date, batch, userEmail: email });
-        
-        if (!tokenDoc) {
-          const mealArray = Object.entries(meals).map(([name, data]) => ({
-            name,
-            quantity: data.quantity,
-            price: data.price
-          }));
-
-          const totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
-
+          // For FUTURE dates: Create PENDING token (will be generated at 8 AM)
           tokenDoc = new Token({
-            token: 'PENDING', // Will be assigned at 8 AM
+            token: 'PENDING',
             date,
             batch,
             userEmail: email,
@@ -977,18 +961,31 @@ app.post("/checkout", async (req, res) => {
           });
 
           await tokenDoc.save();
-        } else {
-          // Update meals for future date
-          const mealArray = Object.entries(meals).map(([name, data]) => ({
-            name,
-            quantity: data.quantity,
-            price: data.price
-          }));
-
-          tokenDoc.meals = mealArray;
-          tokenDoc.totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
-          await tokenDoc.save();
+          console.log(`📅 Created PENDING token for FUTURE date (${date}, Batch ${batch})`);
         }
+      } else {
+        // Token exists - update meals
+        const mealArray = Object.entries(meals).map(([name, data]) => ({
+          name,
+          quantity: data.quantity,
+          price: data.price
+        }));
+
+        tokenDoc.meals = mealArray;
+        tokenDoc.totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
+        
+        // ✅ FIX: If updating a today token that was PENDING, generate actual token number now
+        if (isToday && tokenDoc.token === 'PENDING') {
+          const tokenCount = await Token.countDocuments({ 
+            date, 
+            batch,
+            token: { $ne: 'PENDING' }
+          });
+          tokenDoc.token = (tokenCount + 1).toString();
+          console.log(`✅ Converted PENDING token to #${tokenDoc.token} for TODAY`);
+        }
+        
+        await tokenDoc.save();
       }
       
       tokens.push({
@@ -1473,6 +1470,6 @@ app.listen(PORT, () => {
   console.log("🔔 Push notifications enabled");
   console.log("📅 Calendar-based ordering system active");
   console.log("✏️ Token editing feature enabled");
-  console.log("🎫 Fixed: Unique tokens per date & batch (not globally unique)");
-  console.log("⏰ Scheduled token generation at 8:00 AM daily");
+  console.log("🎫 FIXED: Tokens for TODAY generated immediately, FUTURE tokens are PENDING");
+  console.log("⏰ Scheduled token generation at 8:00 AM daily for future orders");
 });
