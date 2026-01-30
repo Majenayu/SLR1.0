@@ -1,4 +1,4 @@
-// Fixed script.js with proper token handling for today
+// script.js - Fixed Student Dashboard with Today-Only Ordering
 const userEmail = localStorage.getItem('messmate_user_email');
 const userName = localStorage.getItem('messmate_user_name') || '';
 let profileComplete = localStorage.getItem('messmate_profile_complete') === 'true';
@@ -9,17 +9,25 @@ let cameraStream = null;
 let cart = JSON.parse(localStorage.getItem('messmate_cart') || '[]');
 let currentSelectedMeal = null;
 let currentCalendarDate = new Date();
-let selectedDates = new Map(); // Map of date string -> batch number
+let selectedDates = new Map();
 let userTokens = [];
 
 if (!userEmail) window.location.href = '/';
 
-// Calendar Functions
+// Get today's date string
+function getTodayDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Calendar Functions - RESTRICTED TO TODAY ONLY
 function renderCalendar() {
   const year = currentCalendarDate.getFullYear();
   const month = currentCalendarDate.getMonth();
   
-  // Update header
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
                       'July', 'August', 'September', 'October', 'November', 'December'];
   document.getElementById('currentMonth').textContent = `${monthNames[month]} ${year}`;
@@ -32,7 +40,6 @@ function renderCalendar() {
   const calendarGrid = document.getElementById('calendarGrid');
   calendarGrid.innerHTML = '';
   
-  // Add day names
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   dayNames.forEach(name => {
     const dayHeader = document.createElement('div');
@@ -41,14 +48,12 @@ function renderCalendar() {
     calendarGrid.appendChild(dayHeader);
   });
   
-  // Add empty cells for days before month starts
   const startDay = firstDay.getDay();
   for (let i = 0; i < startDay; i++) {
     const emptyCell = document.createElement('div');
     calendarGrid.appendChild(emptyCell);
   }
   
-  // Add days of the month
   for (let day = 1; day <= lastDay.getDate(); day++) {
     const currentDate = new Date(year, month, day);
     const dateString = currentDate.toISOString().split('T')[0];
@@ -56,17 +61,16 @@ function renderCalendar() {
     const dayCell = document.createElement('div');
     dayCell.className = 'calendar-day';
     
-    // Check if date is in the past (disable it)
-    if (currentDate < today) {
+    // CRITICAL: Only allow today's date
+    const todayString = getTodayDateString();
+    if (dateString !== todayString) {
       dayCell.classList.add('disabled');
     }
     
-    // Check if it's today
     if (currentDate.toDateString() === today.toDateString()) {
       dayCell.classList.add('today');
     }
     
-    // Check if date is selected
     if (selectedDates.has(dateString)) {
       dayCell.classList.add('selected');
     }
@@ -76,7 +80,8 @@ function renderCalendar() {
       <span class="day-name">${dayNames[currentDate.getDay()]}</span>
     `;
     
-    if (currentDate >= today) {
+    // Only allow clicking on today
+    if (dateString === todayString) {
       dayCell.addEventListener('click', () => toggleDateSelection(dateString, dayCell));
     }
     
@@ -91,11 +96,10 @@ function toggleDateSelection(dateString, dayCell) {
     selectedDates.delete(dateString);
     dayCell.classList.remove('selected');
   } else {
-    selectedDates.set(dateString, 1); // Default to Batch 1
+    selectedDates.set(dateString, 1);
     dayCell.classList.add('selected');
   }
   
-  // Show/hide batch selection
   if (selectedDates.size > 0) {
     document.getElementById('batchSelectionContainer').classList.remove('hidden');
   } else {
@@ -131,7 +135,6 @@ function updateSelectedDaysSummary() {
   `;
 }
 
-// Update batch for all selected dates when batch changes
 document.querySelectorAll('input[name="batch-time"]').forEach(radio => {
   radio.addEventListener('change', function() {
     const batch = parseInt(this.value);
@@ -140,7 +143,6 @@ document.querySelectorAll('input[name="batch-time"]').forEach(radio => {
     });
     updateSelectedDaysSummary();
     
-    // Update visual feedback
     document.querySelectorAll('.batch-option').forEach(option => {
       option.classList.remove('selected');
     });
@@ -148,7 +150,6 @@ document.querySelectorAll('input[name="batch-time"]').forEach(radio => {
   });
 });
 
-// Month navigation
 document.getElementById('prevMonth').addEventListener('click', () => {
   currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
   renderCalendar();
@@ -159,7 +160,7 @@ document.getElementById('nextMonth').addEventListener('click', () => {
   renderCalendar();
 });
 
-// Cart Management Functions
+// Cart Management
 function updateCartBadge() {
   const badge = document.getElementById('cartBadge');
   const totalItems = cart.reduce((sum, item) => sum + item.days.length, 0);
@@ -306,6 +307,8 @@ function renderCart() {
 function openAddToCartModal(meal) {
   currentSelectedMeal = meal;
   selectedDates.clear();
+  
+  // Force calendar to show current month
   currentCalendarDate = new Date();
   
   const mealInfo = document.getElementById('selectedMealInfo');
@@ -321,18 +324,19 @@ function openAddToCartModal(meal) {
       <div>
         <h4 class="text-xl font-bold text-white">${meal.name}</h4>
         <p class="text-emerald-400 font-bold">₹${meal.price} per meal</p>
+        <p class="text-xs text-amber-400 mt-1">
+          <i class="fas fa-info-circle"></i> You can only order for today
+        </p>
       </div>
     </div>
   `;
   
-  // Pre-select dates if item is already in cart
   const existingCartItem = cart.find(item => item.mealId === meal._id);
   if (existingCartItem) {
     existingCartItem.days.forEach(dayInfo => {
       selectedDates.set(dayInfo.date, dayInfo.batch);
     });
     
-    // Set batch radio
     if (existingCartItem.days.length > 0) {
       const batch = existingCartItem.days[0].batch;
       const radio = document.querySelector(`input[name="batch-time"][value="${batch}"]`);
@@ -430,11 +434,10 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
     const data = await response.json();
     
     if (data.success) {
-      const today = new Date().toISOString().split('T')[0];
+      const todayString = getTodayDateString();
       
-      // Show success message with token info
-      const todayTokens = data.tokens.filter(t => t.date === today);
-      const futureTokens = data.tokens.filter(t => t.date !== today);
+      const todayTokens = data.tokens.filter(t => t.date === todayString);
+      const futureTokens = data.tokens.filter(t => t.date !== todayString);
       
       let message = '';
       if (todayTokens.length > 0) {
@@ -450,7 +453,7 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
       document.getElementById('cartModal').classList.add('hidden');
       showToast(message, 'success');
       loadOrders();
-      await loadUserTokens(); // Reload tokens immediately
+      await loadUserTokens();
     } else {
       showToast(data.error || 'Checkout failed', 'error');
     }
@@ -502,7 +505,6 @@ function renderTokensList() {
     return;
   }
   
-  // Group tokens by date
   const tokensByDate = {};
   userTokens.forEach(token => {
     if (!tokensByDate[token.date]) {
@@ -512,13 +514,14 @@ function renderTokensList() {
   });
   
   const sortedDates = Object.keys(tokensByDate).sort((a, b) => new Date(b) - new Date(a));
+  const todayString = getTodayDateString();
   
   tokensList.innerHTML = sortedDates.map(date => {
     const tokens = tokensByDate[date];
     const dateObj = new Date(date + 'T00:00:00');
     const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    const isPast = dateObj < new Date(new Date().toDateString());
-    const isToday = date === new Date().toISOString().split('T')[0];
+    const isPast = date < todayString;
+    const isToday = date === todayString;
     
     return `
       <div class="bg-slate-700/40 p-6 rounded-xl border border-slate-600/50">
@@ -543,10 +546,15 @@ function renderTokensList() {
                 <div class="text-xs text-slate-400 mt-2">
                   ${token.meals.map(m => `${m.name} (Qty: ${m.quantity})`).join(', ')}
                 </div>
+                ${token.expiresAt ? `
+                  <div class="text-xs text-amber-400 mt-1">
+                    <i class="fas fa-clock mr-1"></i> Expires: ${new Date(token.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                ` : ''}
               </div>
               <div class="text-right">
                 <div class="text-2xl font-bold text-emerald-400 mb-2">₹${token.totalAmount}</div>
-                ${!token.verified && !isPast && isToday ? `
+                ${!token.verified && isToday ? `
                   <button onclick="editToken('${token._id}')" class="text-sm bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg transition">
                     <i class="fas fa-edit mr-1"></i> Edit
                   </button>
@@ -646,7 +654,7 @@ window.removeMeal = function(index) {
     return;
   }
   currentEditingToken.meals.splice(index, 1);
-  editToken(currentEditingToken._id); // Re-render
+  editToken(currentEditingToken._id);
 };
 
 function updateEditTokenDisplay() {
@@ -711,21 +719,19 @@ document.getElementById('closeEditToken').addEventListener('click', () => {
 
 window.editToken = editToken;
 
-// FIXED: Token Button - Show today's token properly
+// FIXED: Today's Token Display
 document.getElementById('tokenBtn').addEventListener('click', async () => {
-  const today = new Date().toISOString().split('T')[0];
+  const todayString = getTodayDateString();
   
-  console.log('🔍 Looking for today\'s token. Today:', today);
+  console.log('🔍 Looking for today\'s token. Today:', todayString);
   
-  // Load latest tokens
   await loadUserTokens();
   
   console.log('📋 All user tokens:', userTokens);
   
-  // Find today's tokens - FIXED: proper date comparison
   const todayTokens = userTokens.filter(t => {
-    console.log(`Comparing token date "${t.date}" with today "${today}"`);
-    return t.date === today;
+    console.log(`Comparing token date "${t.date}" with today "${todayString}"`);
+    return t.date === todayString;
   });
   
   console.log('✅ Today\'s tokens found:', todayTokens);
@@ -735,12 +741,10 @@ document.getElementById('tokenBtn').addEventListener('click', async () => {
     return;
   }
   
-  // Show the first token (or you can show all tokens)
   const activeToken = todayTokens[0];
   
   console.log('🎫 Displaying token:', activeToken);
   
-  // Display token
   document.getElementById('modalTokenNumber').textContent = activeToken.token;
   document.getElementById('modalTokenName').textContent = userName || userEmail;
   document.getElementById('modalTokenPhoto').src = profilePhoto || 'https://via.placeholder.com/120/667eea/ffffff?text=User';
@@ -999,7 +1003,7 @@ async function loadOrders() {
   const data = await res.json();
   if (data.success) {
     userOrders = data.orders || [];
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getTodayDateString();
     const todayUnpaid = userOrders.filter(o => {
       const orderDate = new Date(o.date).toISOString().split('T')[0];
       return orderDate === todayStr && !o.paid;
@@ -1033,7 +1037,7 @@ async function loadOrders() {
 }
 
 function updateProfileModal() {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayDateString();
   const todayUnpaid = userOrders.filter(o => {
     const orderDate = new Date(o.date).toISOString().split('T')[0];
     return orderDate === todayStr && !o.paid;
@@ -1215,10 +1219,7 @@ loadOrders();
 loadUserTokens();
 updateCartBadge();
 
-// ============================================================================
 // PUSH NOTIFICATION REGISTRATION
-// ============================================================================
-
 if ('serviceWorker' in navigator && 'PushManager' in window) {
   console.log('✅ Push notifications supported');
   initializePushNotifications();
@@ -1328,4 +1329,4 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-console.log('✅ MessMate dashboard loaded with FIXED token display logic');
+console.log('✅ MessMate dashboard loaded with TODAY-ONLY ordering and fixed token display');
