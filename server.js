@@ -1,4 +1,4 @@
-// server.js - Fixed version with proper token generation for TODAY vs FUTURE dates
+// server.js - Complete version with immediate token generation (NO scheduled generation)
 const express = require("express");
 require("dotenv").config();
 const mongoose = require("mongoose");
@@ -13,7 +13,6 @@ const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const { OAuth2Client } = require('google-auth-library');
 const webpush = require('web-push');
-const cron = require('node-cron');
 
 const app = express();
 app.use(bodyParser.json());
@@ -82,7 +81,6 @@ mongoose.connect(mongoURI, {
   }
   
   initMeals();
-  console.log("✅ Scheduled jobs initialized");
 }).catch(err => {
   console.error("❌ MongoDB Connection Error:", err.message);
   process.exit(1);
@@ -154,7 +152,7 @@ const mealSchema = new mongoose.Schema({
 
 const Meal = mongoose.model("Meal", mealSchema);
 
-// FIXED Token Schema - Removed single token index
+// Token Schema
 const tokenSchema = new mongoose.Schema({
   token: { type: String, required: true },
   date: { type: String, required: true }, // ISO date string (YYYY-MM-DD)
@@ -184,8 +182,7 @@ const tokenSchema = new mongoose.Schema({
   }
 });
 
-// CRITICAL FIX: Compound unique index on token + date + batch
-// This allows token "1" to exist for different dates and batches
+// Compound unique index on token + date + batch
 tokenSchema.index({ token: 1, date: 1, batch: 1 }, { unique: true });
 
 const Token = mongoose.model("Token", tokenSchema);
@@ -207,99 +204,6 @@ const NotificationLog = mongoose.model("NotificationLog", notificationLogSchema)
 // SSE connections
 let sseClients = [];
 let producerSSEClients = [];
-
-// ==================== SCHEDULED TOKEN GENERATION ====================
-
-// Run every day at 8:00 AM to generate tokens for today's orders
-cron.schedule('50 18 * * *', async () => {
-  console.log('🕕 Running scheduled token generation at 6:47 PM');
-  await generateDailyTokens();
-});
-
-}, {
-  timezone: "Asia/Kolkata"
-});
-
-async function generateDailyTokens() {
-  try {
-    const today = new Date().toISOString().split('T')[0];
-    console.log(`📅 Generating tokens for ${today}`);
-    
-    // Find all PENDING tokens for today
-    const pendingTokens = await Token.find({ 
-      date: today, 
-      token: 'PENDING' 
-    });
-    
-    if (pendingTokens.length === 0) {
-      console.log('✅ No pending tokens to generate');
-      return;
-    }
-    
-    console.log(`📋 Found ${pendingTokens.length} pending tokens for today`);
-    
-    // Group by batch
-    const batch1Tokens = pendingTokens.filter(t => t.batch === 1);
-    const batch2Tokens = pendingTokens.filter(t => t.batch === 2);
-    
-    // Generate token numbers for batch 1
-    for (let i = 0; i < batch1Tokens.length; i++) {
-      batch1Tokens[i].token = (i + 1).toString();
-      await batch1Tokens[i].save();
-      
-      // Update user's orders with new token number
-      const user = await User.findOne({ email: batch1Tokens[i].userEmail });
-      if (user) {
-        user.orders.forEach(order => {
-          if (order.orderDate === today && order.batch === 1 && order.token === 'PENDING') {
-            order.token = batch1Tokens[i].token;
-          }
-        });
-        await user.save();
-        
-        // Send notification
-        await sendPushNotification(batch1Tokens[i].userEmail, {
-          title: '🎫 Your Token is Ready!',
-          body: `Token #${batch1Tokens[i].token} for Batch 1 (12:30-1:00 PM) is now active!`,
-          type: 'order_update',
-          reason: 'token_generated',
-          data: { url: '/dashboard' }
-        });
-      }
-    }
-    
-    // Generate token numbers for batch 2
-    for (let i = 0; i < batch2Tokens.length; i++) {
-      batch2Tokens[i].token = (i + 1).toString();
-      await batch2Tokens[i].save();
-      
-      // Update user's orders with new token number
-      const user = await User.findOne({ email: batch2Tokens[i].userEmail });
-      if (user) {
-        user.orders.forEach(order => {
-          if (order.orderDate === today && order.batch === 2 && order.token === 'PENDING') {
-            order.token = batch2Tokens[i].token;
-          }
-        });
-        await user.save();
-        
-        // Send notification
-        await sendPushNotification(batch2Tokens[i].userEmail, {
-          title: '🎫 Your Token is Ready!',
-          body: `Token #${batch2Tokens[i].token} for Batch 2 (1:00-2:00 PM) is now active!`,
-          type: 'order_update',
-          reason: 'token_generated',
-          data: { url: '/dashboard' }
-        });
-      }
-    }
-    
-    console.log(`✅ Generated ${batch1Tokens.length} tokens for Batch 1 and ${batch2Tokens.length} tokens for Batch 2`);
-    
-  } catch (err) {
-    console.error('❌ Error generating daily tokens:', err);
-  }
-}
 
 // ==================== PUSH NOTIFICATION FUNCTIONS ====================
 
@@ -861,12 +765,7 @@ app.delete("/delete-meal/:id", async (req, res) => {
   }
 });
 
-// ==================== FIXED CHECKOUT ENDPOINT ====================
-// Replace the checkout endpoint in server.js (starting around line 610)
-
-// ==================== COMPLETE FIXED CHECKOUT ENDPOINT ====================
-// This is the complete working version with the todayDate scope fix
-
+// ==================== CHECKOUT ENDPOINT - IMMEDIATE TOKEN GENERATION ====================
 app.post("/checkout", async (req, res) => {
   try {
     const { email, orders } = req.body;
@@ -903,19 +802,14 @@ app.post("/checkout", async (req, res) => {
     });
 
     const tokens = [];
-    const today = new Date().toISOString().split('T')[0];
-    // ✅ CRITICAL FIX: Define todayDate BEFORE the loop to avoid "not defined" error
-    const todayDate = new Date(today).toISOString().split('T')[0];
 
     for (const key in ordersByDateBatch) {
       const { date, batch, meals } = ordersByDateBatch[key];
       
-      // ✅ FIX: Normalize order date to YYYY-MM-DD format for comparison
+      // Normalize date to YYYY-MM-DD format
       const orderDate = new Date(date).toISOString().split('T')[0];
-      const isToday = orderDate === todayDate;
       
-      // Optional: Add debug logging
-      console.log(`📅 Order comparison: orderDate=${orderDate}, todayDate=${todayDate}, isToday=${isToday}`);
+      console.log(`📅 Processing order for date: ${orderDate}, batch: ${batch}`);
       
       let tokenDoc = null;
       
@@ -923,7 +817,7 @@ app.post("/checkout", async (req, res) => {
       tokenDoc = await Token.findOne({ date: orderDate, batch, userEmail: email });
       
       if (!tokenDoc) {
-        // Create new token
+        // Create new token - ALWAYS generate actual token number immediately
         const mealArray = Object.entries(meals).map(([name, data]) => ({
           name,
           quantity: data.quantity,
@@ -932,48 +826,28 @@ app.post("/checkout", async (req, res) => {
 
         const totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
 
-        if (isToday) {
-          // ✅ For TODAY - Generate actual token number immediately
-          const tokenCount = await Token.countDocuments({ 
-            date: orderDate, 
-            batch,
-            token: { $ne: 'PENDING' }
-          });
-          const newToken = (tokenCount + 1).toString();
+        // Count existing tokens for this date and batch
+        const tokenCount = await Token.countDocuments({ 
+          date: orderDate, 
+          batch
+        });
+        const newToken = (tokenCount + 1).toString();
 
-          tokenDoc = new Token({
-            token: newToken,
-            date: orderDate,
-            batch,
-            userEmail: email,
-            userName: user.name,
-            userPhoto: user.profilePhoto,
-            meals: mealArray,
-            totalAmount,
-            paid: true,
-            verified: false
-          });
+        tokenDoc = new Token({
+          token: newToken,
+          date: orderDate,
+          batch,
+          userEmail: email,
+          userName: user.name,
+          userPhoto: user.profilePhoto,
+          meals: mealArray,
+          totalAmount,
+          paid: true,
+          verified: false
+        });
 
-          await tokenDoc.save();
-          console.log(`✅ Generated token #${newToken} for TODAY (${orderDate}, Batch ${batch})`);
-        } else {
-          // For FUTURE dates: Create PENDING token (will be generated at 8 AM)
-          tokenDoc = new Token({
-            token: 'PENDING',
-            date: orderDate,
-            batch,
-            userEmail: email,
-            userName: user.name,
-            userPhoto: user.profilePhoto,
-            meals: mealArray,
-            totalAmount,
-            paid: true,
-            verified: false
-          });
-
-          await tokenDoc.save();
-          console.log(`📅 Created PENDING token for FUTURE date (${orderDate}, Batch ${batch})`);
-        }
+        await tokenDoc.save();
+        console.log(`✅ Generated token #${newToken} for ${orderDate}, Batch ${batch}`);
       } else {
         // Token exists - update meals
         const mealArray = Object.entries(meals).map(([name, data]) => ({
@@ -984,19 +858,8 @@ app.post("/checkout", async (req, res) => {
 
         tokenDoc.meals = mealArray;
         tokenDoc.totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
-        
-        // ✅ If updating a today token that was PENDING, generate actual token number now
-        if (isToday && tokenDoc.token === 'PENDING') {
-          const tokenCount = await Token.countDocuments({ 
-            date: orderDate, 
-            batch,
-            token: { $ne: 'PENDING' }
-          });
-          tokenDoc.token = (tokenCount + 1).toString();
-          console.log(`✅ Converted PENDING token to #${tokenDoc.token} for TODAY`);
-        }
-        
         await tokenDoc.save();
+        console.log(`✅ Updated existing token #${tokenDoc.token} for ${orderDate}, Batch ${batch}`);
       }
       
       tokens.push({
@@ -1028,24 +891,8 @@ app.post("/checkout", async (req, res) => {
     await user.save();
 
     // Send order confirmation notification
-    const todayTokens = tokens.filter(t => {
-      const tDate = new Date(t.date).toISOString().split('T')[0];
-      return tDate === todayDate && t.token !== 'PENDING';
-    });
-    const futureOrders = tokens.filter(t => {
-      const tDate = new Date(t.date).toISOString().split('T')[0];
-      return tDate !== todayDate || t.token === 'PENDING';
-    }).length;
-    
-    let notificationBody = '';
-    if (todayTokens.length > 0) {
-      notificationBody = `Today's token(s) ready: ${todayTokens.map(t => `#${t.token}`).join(', ')}`;
-      if (futureOrders > 0) {
-        notificationBody += `. ${futureOrders} future order(s) scheduled.`;
-      }
-    } else {
-      notificationBody = `${futureOrders} order(s) scheduled. Tokens will be generated at 8 AM on order date.`;
-    }
+    const tokenNumbers = tokens.map(t => `#${t.token}`).join(', ');
+    const notificationBody = `Your token(s) are ready: ${tokenNumbers}. Total: ${tokens.length} order(s).`;
 
     await sendPushNotification(email, {
       title: '✅ Order Confirmed!',
@@ -1061,6 +908,7 @@ app.post("/checkout", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 // Get user tokens
 app.get("/user-tokens/:email", async (req, res) => {
   try {
@@ -1486,6 +1334,5 @@ app.listen(PORT, () => {
   console.log("🔔 Push notifications enabled");
   console.log("📅 Calendar-based ordering system active");
   console.log("✏️ Token editing feature enabled");
-  console.log("🎫 FIXED: Tokens for TODAY generated immediately, FUTURE tokens are PENDING");
-  console.log("⏰ Scheduled token generation at 8:00 AM daily for future orders");
+  console.log("🎫 All tokens generated immediately at checkout");
 });
