@@ -1,4 +1,4 @@
-// Updated script.js with Calendar System and Token Management
+// Updated script.js with proper token handling for today and scheduled tokens
 const userEmail = localStorage.getItem('messmate_user_email');
 const userName = localStorage.getItem('messmate_user_name') || '';
 let profileComplete = localStorage.getItem('messmate_profile_complete') === 'true';
@@ -430,15 +430,25 @@ document.getElementById('proceedToCheckout').addEventListener('click', async () 
     const data = await response.json();
     
     if (data.success) {
-      // Store tokens for each unique date
-      data.tokens.forEach(tokenData => {
-        localStorage.setItem(`token_${tokenData.date}_${userEmail}`, tokenData.token);
-        localStorage.setItem(`tokenData_${tokenData.date}_${userEmail}`, JSON.stringify(tokenData.meals));
-      });
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Show success message with token info
+      const todayTokens = data.tokens.filter(t => t.date === today && t.token !== 'PENDING');
+      const futureTokens = data.tokens.filter(t => t.date !== today || t.token === 'PENDING');
+      
+      let message = '';
+      if (todayTokens.length > 0) {
+        message = `✓ Today's token(s): ${todayTokens.map(t => '#' + t.token).join(', ')}`;
+        if (futureTokens.length > 0) {
+          message += `\n${futureTokens.length} future order(s) scheduled`;
+        }
+      } else {
+        message = `✓ ${futureTokens.length} order(s) scheduled\nTokens will be generated at 8 AM`;
+      }
       
       clearCart();
       document.getElementById('cartModal').classList.add('hidden');
-      showToast(`✓ Order placed! ${data.tokens.length} token(s) generated.`, 'success');
+      showToast(message, 'success');
       loadOrders();
       loadUserTokens();
     } else {
@@ -507,22 +517,33 @@ function renderTokensList() {
     const dateObj = new Date(date + 'T00:00:00');
     const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     const isPast = dateObj < new Date(new Date().toDateString());
+    const isToday = date === new Date().toISOString().split('T')[0];
     
     return `
       <div class="bg-slate-700/40 p-6 rounded-xl border border-slate-600/50">
         <h4 class="text-xl font-bold mb-4 text-indigo-200">
           <i class="fas fa-calendar-day mr-2"></i> ${dateStr}
           ${isPast ? '<span class="text-xs text-slate-400 ml-2">(Past)</span>' : ''}
+          ${isToday ? '<span class="text-xs text-emerald-400 ml-2">(Today)</span>' : ''}
         </h4>
         <div class="space-y-3">
           ${tokens.map(token => `
             <div class="token-item flex justify-between items-center">
               <div class="flex-1">
                 <div class="flex items-center gap-4 mb-2">
-                  <div class="text-3xl font-bold text-emerald-400">Token #${token.token}</div>
-                  <span class="text-sm px-3 py-1 rounded-full ${token.verified ? 'bg-green-600/30 text-green-300' : 'bg-yellow-600/30 text-yellow-300'}">
-                    ${token.verified ? '✓ Verified' : '⏳ Pending'}
-                  </span>
+                  ${token.token === 'PENDING' ? `
+                    <div class="text-2xl font-bold text-yellow-400">
+                      <i class="fas fa-clock mr-2"></i>Token Pending
+                    </div>
+                    <span class="text-xs px-3 py-1 rounded-full bg-yellow-600/30 text-yellow-300">
+                      Will be generated at 8 AM
+                    </span>
+                  ` : `
+                    <div class="text-3xl font-bold text-emerald-400">Token #${token.token}</div>
+                    <span class="text-sm px-3 py-1 rounded-full ${token.verified ? 'bg-green-600/30 text-green-300' : 'bg-yellow-600/30 text-yellow-300'}">
+                      ${token.verified ? '✓ Verified' : '⏳ Pending'}
+                    </span>
+                  `}
                 </div>
                 <div class="text-sm text-slate-300">
                   Batch ${token.batch}: ${token.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}
@@ -533,7 +554,7 @@ function renderTokensList() {
               </div>
               <div class="text-right">
                 <div class="text-2xl font-bold text-emerald-400 mb-2">₹${token.totalAmount}</div>
-                ${!token.verified && !isPast ? `
+                ${!token.verified && !isPast && token.token !== 'PENDING' && isToday ? `
                   <button onclick="editToken('${token._id}')" class="text-sm bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg transition">
                     <i class="fas fa-edit mr-1"></i> Edit
                   </button>
@@ -698,12 +719,56 @@ document.getElementById('closeEditToken').addEventListener('click', () => {
 
 window.editToken = editToken;
 
+// Token Button - Show today's token
+document.getElementById('tokenBtn').addEventListener('click', async () => {
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Load latest tokens
+  await loadUserTokens();
+  
+  // Find today's tokens
+  const todayTokens = userTokens.filter(t => t.date === today);
+  
+  if (todayTokens.length === 0) {
+    showToast('❌ No active token for today. Please make a payment first!', 'error');
+    return;
+  }
+  
+  // Show the first non-pending token
+  const activeToken = todayTokens.find(t => t.token !== 'PENDING');
+  
+  if (!activeToken) {
+    showToast('⏰ Your token will be generated at 8:00 AM', 'info');
+    return;
+  }
+  
+  // Display token
+  document.getElementById('modalTokenNumber').textContent = activeToken.token;
+  document.getElementById('modalTokenName').textContent = userName || userEmail;
+  document.getElementById('modalTokenPhoto').src = profilePhoto || 'https://via.placeholder.com/120/667eea/ffffff?text=User';
+
+  const mealsHtml = activeToken.meals.map(m => 
+    `<li class="bg-white/5 p-2 rounded flex justify-between">
+      <span>${m.name}</span>
+      <span class="font-bold">Qty: ${m.quantity} × ₹${m.price}</span>
+    </li>`
+  ).join('');
+  
+  document.getElementById('modalMealsItems').innerHTML = mealsHtml;
+  document.getElementById('modalMealsList').classList.remove('hidden');
+  document.getElementById('tokenModal').classList.remove('hidden');
+});
+
+document.getElementById('closeTokenModal').addEventListener('click', () => {
+  document.getElementById('tokenModal').classList.add('hidden');
+});
+
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   const bgColor = type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
   const icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-triangle' : 'fa-info-circle';
   
-  toast.className = `fixed top-4 right-4 ${bgColor} text-white px-6 py-4 rounded-xl shadow-lg z-50 flex items-center gap-3`;
+  toast.className = `fixed top-4 right-4 ${bgColor} text-white px-6 py-4 rounded-xl shadow-lg z-50 flex items-center gap-3 whitespace-pre-line`;
   toast.innerHTML = `
     <i class="fas ${icon}"></i>
     <span>${message}</span>
@@ -714,7 +779,7 @@ function showToast(message, type = 'info') {
   setTimeout(() => {
     toast.classList.add('opacity-0', 'transform', 'translate-x-full', 'transition-all', 'duration-300');
     setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  }, 5000);
 }
 
 async function checkProfile() {
@@ -884,38 +949,6 @@ document.getElementById('logout').addEventListener('click', () => {
   window.location.href = '/';
 });
 
-document.getElementById('tokenBtn').addEventListener('click', () => {
-  const today = new Date().toDateString();
-  const todayISO = new Date().toISOString().split('T')[0];
-  const token = localStorage.getItem(`token_${todayISO}_${userEmail}`);
-  const meals = localStorage.getItem(`tokenData_${todayISO}_${userEmail}`);
-
-  if (!token || !meals) {
-    alert('❌ No active token for today. Please make a payment first!');
-    return;
-  }
-
-  document.getElementById('modalTokenNumber').textContent = token;
-  document.getElementById('modalTokenName').textContent = userName || userEmail;
-  document.getElementById('modalTokenPhoto').src = profilePhoto || 'https://via.placeholder.com/120/667eea/ffffff?text=User';
-
-  const mealList = JSON.parse(meals);
-  const mealsHtml = mealList.map(m => 
-    `<li class="bg-white/5 p-2 rounded flex justify-between">
-      <span>${m.name}</span>
-      <span class="font-bold">Qty: ${m.quantity} × ₹${m.price}</span>
-    </li>`
-  ).join('');
-  
-  document.getElementById('modalMealsItems').innerHTML = mealsHtml;
-  document.getElementById('modalMealsList').classList.remove('hidden');
-  document.getElementById('tokenModal').classList.remove('hidden');
-});
-
-document.getElementById('closeTokenModal').addEventListener('click', () => {
-  document.getElementById('tokenModal').classList.add('hidden');
-});
-
 document.getElementById('profileBtn').addEventListener('click', () => {
   updateProfileModal();
   document.getElementById('profileModal').classList.remove('hidden');
@@ -988,6 +1021,7 @@ async function loadOrders() {
               <p class="font-bold text-xl">${o.mealName}</p>
               <p class="text-sm text-slate-300">${displayDate}</p>
               ${o.batch ? `<p class="text-xs text-indigo-300 mt-1">Batch ${o.batch}: ${o.batch === 1 ? '12:30-1:00 PM' : '1:00-2:00 PM'}</p>` : ''}
+              ${o.token ? `<p class="text-xs text-emerald-300 mt-1">Token: ${o.token === 'PENDING' ? 'Will be generated at 8 AM' : '#' + o.token}</p>` : ''}
               <span class="text-${o.paid ? 'emerald' : 'red'}-400 text-sm">${o.paid ? 'Paid' : 'Unpaid'}</span>
             </div>
             <p class="text-xl font-bold text-emerald-400">₹${o.price}</p>
