@@ -859,8 +859,9 @@ app.delete("/delete-meal/:id", async (req, res) => {
   }
 });
 
-// ==================== CRITICAL FIX: CHECKOUT ENDPOINT ====================
-// Enhanced Checkout (Calendar-Based) - FIXED: Generate actual tokens for TODAY, PENDING for future
+// ==================== FIXED CHECKOUT ENDPOINT ====================
+// Replace the checkout endpoint in server.js (starting around line 610)
+
 app.post("/checkout", async (req, res) => {
   try {
     const { email, orders } = req.body;
@@ -902,13 +903,19 @@ app.post("/checkout", async (req, res) => {
     for (const key in ordersByDateBatch) {
       const { date, batch, meals } = ordersByDateBatch[key];
       
-      // Check if order is for today or future
-      const isToday = date === today;
+      // ✅ FIX: Normalize both dates to YYYY-MM-DD format for comparison
+      // This ensures TODAY orders get immediate tokens, not PENDING
+      const orderDate = new Date(date).toISOString().split('T')[0];
+      const todayDate = new Date(today).toISOString().split('T')[0];
+      const isToday = orderDate === todayDate;
+      
+      // Optional: Add debug logging
+      console.log(`📅 Order comparison: orderDate=${orderDate}, todayDate=${todayDate}, isToday=${isToday}`);
       
       let tokenDoc = null;
       
       // Check if token already exists
-      tokenDoc = await Token.findOne({ date, batch, userEmail: email });
+      tokenDoc = await Token.findOne({ date: orderDate, batch, userEmail: email });
       
       if (!tokenDoc) {
         // Create new token
@@ -921,10 +928,9 @@ app.post("/checkout", async (req, res) => {
         const totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
 
         if (isToday) {
-          // ✅ FIX: For TODAY - Generate actual token number immediately
-          // Count existing tokens for today with this batch (exclude PENDING tokens)
+          // ✅ For TODAY - Generate actual token number immediately
           const tokenCount = await Token.countDocuments({ 
-            date, 
+            date: orderDate, 
             batch,
             token: { $ne: 'PENDING' }
           });
@@ -932,7 +938,7 @@ app.post("/checkout", async (req, res) => {
 
           tokenDoc = new Token({
             token: newToken,
-            date,
+            date: orderDate,
             batch,
             userEmail: email,
             userName: user.name,
@@ -944,12 +950,12 @@ app.post("/checkout", async (req, res) => {
           });
 
           await tokenDoc.save();
-          console.log(`✅ Generated token #${newToken} for TODAY (${date}, Batch ${batch})`);
+          console.log(`✅ Generated token #${newToken} for TODAY (${orderDate}, Batch ${batch})`);
         } else {
           // For FUTURE dates: Create PENDING token (will be generated at 8 AM)
           tokenDoc = new Token({
             token: 'PENDING',
-            date,
+            date: orderDate,
             batch,
             userEmail: email,
             userName: user.name,
@@ -961,7 +967,7 @@ app.post("/checkout", async (req, res) => {
           });
 
           await tokenDoc.save();
-          console.log(`📅 Created PENDING token for FUTURE date (${date}, Batch ${batch})`);
+          console.log(`📅 Created PENDING token for FUTURE date (${orderDate}, Batch ${batch})`);
         }
       } else {
         // Token exists - update meals
@@ -974,10 +980,10 @@ app.post("/checkout", async (req, res) => {
         tokenDoc.meals = mealArray;
         tokenDoc.totalAmount = mealArray.reduce((sum, m) => sum + (m.price * m.quantity), 0);
         
-        // ✅ FIX: If updating a today token that was PENDING, generate actual token number now
+        // ✅ If updating a today token that was PENDING, generate actual token number now
         if (isToday && tokenDoc.token === 'PENDING') {
           const tokenCount = await Token.countDocuments({ 
-            date, 
+            date: orderDate, 
             batch,
             token: { $ne: 'PENDING' }
           });
@@ -997,7 +1003,7 @@ app.post("/checkout", async (req, res) => {
       });
 
       // Add to user orders (clear old orders for this date/batch first)
-      user.orders = user.orders.filter(o => !(o.orderDate === date && o.batch === batch));
+      user.orders = user.orders.filter(o => !(o.orderDate === orderDate && o.batch === batch));
       
       tokenDoc.meals.forEach(meal => {
         for (let i = 0; i < meal.quantity; i++) {
@@ -1005,7 +1011,7 @@ app.post("/checkout", async (req, res) => {
             mealName: meal.name,
             price: meal.price,
             date: new Date(),
-            orderDate: date,
+            orderDate: orderDate,
             paid: true,
             batch: batch,
             token: tokenDoc.token
@@ -1017,8 +1023,14 @@ app.post("/checkout", async (req, res) => {
     await user.save();
 
     // Send order confirmation notification
-    const todayTokens = tokens.filter(t => t.date === today && t.token !== 'PENDING');
-    const futureOrders = tokens.filter(t => t.date !== today || t.token === 'PENDING').length;
+    const todayTokens = tokens.filter(t => {
+      const tDate = new Date(t.date).toISOString().split('T')[0];
+      return tDate === todayDate && t.token !== 'PENDING';
+    });
+    const futureOrders = tokens.filter(t => {
+      const tDate = new Date(t.date).toISOString().split('T')[0];
+      return tDate !== todayDate || t.token === 'PENDING';
+    }).length;
     
     let notificationBody = '';
     if (todayTokens.length > 0) {
@@ -1044,7 +1056,6 @@ app.post("/checkout", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // Get user tokens
 app.get("/user-tokens/:email", async (req, res) => {
   try {
